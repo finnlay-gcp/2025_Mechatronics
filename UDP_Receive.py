@@ -13,7 +13,7 @@ import sys      # This library will give us some information about your system
 
 # First we need to set the IP and PORT we are going to listen to
 # This is the localhost IP address (this machine)
-UDP_IP = "127.0.0.1"
+UDP_IP = "172.26.236.13"
  
 # This is the LOCAL port I am expecting data (on the sending machine this is the REMOTE port)
 UDP_PORT = 50001

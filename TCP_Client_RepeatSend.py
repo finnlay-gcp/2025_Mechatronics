@@ -12,7 +12,7 @@ import logging  # This library will offer us a different method to print informa
 logging.basicConfig(level=logging.INFO)
 
 # This is the IP address of the machine that the data will be send to
-TCP_IP = "127.0.0.1"
+TCP_IP = "138.38.226.136"
 
 # This is the REMOTE port of the Server that we are sending the data to
 TCP_PORT = 25000
@@ -27,7 +27,7 @@ s.connect((TCP_IP, TCP_PORT))
 logging.info('Connected')
 
 # We are going to send 3 bytes with values 50, 60, 70, ten times
-data = bytes([50,60,70])
+data = bytes([50,55,60,65,70])
 
 for i in range(0,10):
     s.send(data)        # Send all 3 bytes in a go

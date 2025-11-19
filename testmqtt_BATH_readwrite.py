@@ -33,7 +33,7 @@ client.username_pw_set("student",password="HousekeepingGlintsStreetwise")
 client.connect("fesv-mqtt.bath.ac.uk",31415,60)
 
 # Create your main topic string. Everything else should be fields with values 1-8
-MainTopic = "TeamTopic"
+MainTopic = "fr" #CHANGE THIS TO YOUR TEAM TOPIC LATER!!!!!
 
 # Start the client to enable the above events to happen
 client.loop_start()

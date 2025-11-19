@@ -30,7 +30,7 @@ cv2.namedWindow("Gray", cv2.WINDOW_AUTOSIZE)
 cv2.moveWindow("Gray", 640, 100)
 cv2.moveWindow("Frame", 0, 100)
 # Start capturing video
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 # Set the starting time
 start_time = time.time()

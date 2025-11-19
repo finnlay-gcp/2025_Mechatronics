@@ -12,8 +12,8 @@ import time
 def on_connect(client,userdata,flags,rc):
     print ("Connected with result code "+str(rc))
     #client.subscribe("$SYS/#")
-    client.subscribe("TeamTopic")
-    print("Subscribed to TeamTopic")
+    client.subscribe("fr")  #CHANGE THIS TO YOUR TEAM TOPIC LATER!!!!!
+    print("Subscribed to fr") #CHANGE THIS TO YOUR TEAM TOPIC LATER!!!!!
 
 # The callback for when a PUBLISH message is received from the server.
 def on_message(client, userdata, msg):
