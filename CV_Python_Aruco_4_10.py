@@ -39,14 +39,12 @@ processing_period = 0.25
 
 # Create three OpenCV named windows
 window_width = 768 #keep 1920:1080 ratio
-window_height = 432
+window_height = 432 #keep 1920:1080 ratio
 print("Creating windows...")
-cv2.namedWindow("Frame", cv2.WINDOW_NORMAL)
-cv2.resizeWindow("Frame", window_width, window_height)
-cv2.namedWindow("Gray", cv2.WINDOW_NORMAL)
-cv2.resizeWindow("Gray", window_width, window_height)
-cv2.namedWindow("Canny", cv2.WINDOW_NORMAL)
-cv2.resizeWindow("Canny", window_width, window_height)
+window_names = ["Frame", "Gray", "Canny"]
+for name in window_names:
+    cv2.namedWindow(name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(name, window_width, window_height)
 
 # Position the windows next to each other
 cv2.moveWindow("Gray", 0, 0)
@@ -55,7 +53,7 @@ cv2.moveWindow("Canny", 0, 510)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(1) #1 is the external camera
+cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------select camera here
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,1920)
@@ -152,19 +150,21 @@ while True:
         # Add text label to topmost marker on frame
         cv2.putText(frame, f"TOPMOST: ID {marker_id}", (int(topmost_y), 50), 
                     cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 0), 2)
-
+    
     # Add the frame rate to the images
-    cv2.putText(gray, f"CAMERA FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    cv2.putText(gray, f"PROCESSING FPS: {1/processing_period:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    cv2.putText(frame, f"CAMERA FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    cv2.putText(frame, f"PROCESSING FPS: {1/processing_period:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    cv2.putText(canny, f"CAMERA FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    cv2.putText(canny, f"PROCESSING FPS: {1/processing_period:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    fps_label = f"CAMERA FPS: {fps:.2f}"
+    proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
+
+    images_to_label = [gray, frame, canny]
+
+    for img in images_to_label:
+        cv2.putText(img, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.putText(img, proc_label, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     # Display the resulting frame
-    cv2.imshow('Gray', gray)
-    cv2.imshow('Frame', frame)
-    cv2.imshow('Canny', canny)
+    show_list = [("Gray", gray), ("Frame", frame), ("Canny", canny)]
+    for name, img in show_list:
+        cv2.imshow(name, img)
 
     # Break the loop on 'q' key press (use longer wait time to allow window responsiveness)
     key = cv2.waitKey(1) & 0xFF
