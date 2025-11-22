@@ -22,12 +22,25 @@ marker_size = 40 # SIZE OF THE MARKER IN mm (HAVE TO MEASURE IF PRINTED)
 aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
 parameters = aruco.DetectorParameters()
 
+# Input specific ArUco IDs to detect (leave empty to detect all)
+aruco_ids_input = input("Enter specific ArUco IDs to detect (comma-separated, e.g., 0,5,10). Leave empty to detect all: ").strip()
+if aruco_ids_input:
+    try:
+        specified_ids = set(int(id.strip()) for id in aruco_ids_input.split(','))
+        print(f"Detecting markers with IDs: {sorted(specified_ids)}")
+    except ValueError:
+        print("Invalid input. Detecting all markers.")
+        specified_ids = None
+else:
+    specified_ids = None
+
 # Define a processing rate
 processing_period = 0.25
 
 # Create three OpenCV named windows
 window_width = 768 #keep 1920:1080 ratio
 window_height = 432
+print("Creating windows...")
 cv2.namedWindow("Frame", cv2.WINDOW_NORMAL)
 cv2.resizeWindow("Frame", window_width, window_height)
 cv2.namedWindow("Gray", cv2.WINDOW_NORMAL)
@@ -39,6 +52,7 @@ cv2.resizeWindow("Canny", window_width, window_height)
 cv2.moveWindow("Gray", 0, 0)
 cv2.moveWindow("Frame", 780, 0)
 cv2.moveWindow("Canny", 0, 510)
+print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
 cap = cv2.VideoCapture(1) #1 is the external camera
@@ -72,6 +86,19 @@ while True:
 
     # If markers are detected
     if ids is not None:
+        # Filter markers by specified IDs if applicable
+        if specified_ids is not None:
+            filtered_indices = [i for i, marker_id in enumerate(ids.flatten()) if marker_id in specified_ids]
+            if not filtered_indices:
+                # No markers match the specified IDs, skip this frame
+                ids = None
+            else:
+                # Keep only the filtered markers
+                corners = [corners[i] for i in filtered_indices]
+                ids = ids[filtered_indices]
+        
+    # If markers are detected (after filtering)
+    if ids is not None:
         # Draw detected markers
         gray = aruco.drawDetectedMarkers(gray, corners, ids)
         frame = aruco.drawDetectedMarkers(frame, corners, ids)
@@ -93,7 +120,7 @@ while True:
                 topmost_ind = ind
         
         # Process only the topmost marker
-        print("\n--- TOPMOST MARKER DETECTED ---\n")
+        print("\n--- TOPMOST MARKER DETECTED ---")
         marker_id = ids.flatten()[topmost_ind]
         rvec = rvecs[topmost_ind]
         tvec = tvecs[topmost_ind]
@@ -102,12 +129,12 @@ while True:
         tvec_flat = tvec.flatten()
         rvec_flat = rvec.flatten()
         
-        print(f"MARKER ID: {marker_id}\n")
-        print(f"    Index: {topmost_ind}\n")
+        print(f"MARKER ID: {marker_id}")
+        print(f"    Index: {topmost_ind}")
         print(f"    Translation Vector (tvec): {tvec_flat}")
-        print(f"        X: {tvec_flat[0]:.2f} mm, Y: {tvec_flat[1]:.2f} mm, Z: {tvec_flat[2]:.2f} mm\n")
+        print(f"        X: {tvec_flat[0]:.2f} mm, Y: {tvec_flat[1]:.2f} mm, Z: {tvec_flat[2]:.2f} mm")
         print(f"    Rotation Vector (rvec): {rvec_flat}")
-        print(f"        Rx: {rvec_flat[0]:.4f}, Ry: {rvec_flat[1]:.4f}, Rz: {rvec_flat[2]:.4f}\n")
+        print(f"        Rx: {rvec_flat[0]:.4f}, Ry: {rvec_flat[1]:.4f}, Rz: {rvec_flat[2]:.4f}")
         
         # Draw axis only for the topmost marker (check if endpoints are in frame)
         axis_length = 50  # Use smaller axis length to stay in frame
@@ -139,8 +166,10 @@ while True:
     cv2.imshow('Frame', frame)
     cv2.imshow('Canny', canny)
 
-    # Break the loop on 'q' key press
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    # Break the loop on 'q' key press (use longer wait time to allow window responsiveness)
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
+        print("\nQuitting...")
         break
 
     # Ensure a steady processing rate
