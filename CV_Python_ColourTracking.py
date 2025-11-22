@@ -8,6 +8,30 @@ import time
 # Define a processing rate
 processing_period = 0.25
 
+# --- CONFIGURATION FOR COLORS ---
+# Dictionary structure: "Color Name": { "ranges": [ (lower, upper) ], "draw_color": (B, G, R) }
+color_definitions = {
+    "Red": {
+        "ranges": [
+            (np.array([0, 70, 50]), np.array([15, 255, 255])),     # Lower Red (0-10)
+            (np.array([165, 70, 50]), np.array([180, 255, 255]))   # Upper Red (170-180)
+        ],
+        "draw_color": (0, 0, 255) # Red in BGR
+    },
+    "Green": {
+        "ranges": [
+            (np.array([35, 50, 50]), np.array([90, 255, 255]))    # Green range
+        ],
+        "draw_color": (0, 255, 0) # Green in BGR
+    },
+    "Blue": {
+        "ranges": [
+            (np.array([95, 70, 50]), np.array([155, 255, 255]))   # Blue range
+        ],
+        "draw_color": (255, 0, 0) # Blue in BGR
+    }
+}
+
 # Create OpenCV named windows
 window_width = 768 #keep 1920:1080 ratio
 window_height = 432 #keep 1920:1080 ratio
@@ -45,28 +69,46 @@ while True:
     # Convert BGR to HSV
     hsv = cv2.cvtColor(gauss, cv2.COLOR_BGR2HSV)
 
-    # define range of blue color in HSV
-    # H=hue, S=saturation, V=value
-    # Less saturation = more white, less value = more black
-    lower_blue = np.array([90,100,100])
-    upper_blue = np.array([150,255,255])
+    # --- DEBUGGING TOOL: CENTER PIXEL PROBE ---
+    # Get the center of the screen
+    height, width, _ = frame.shape
+    cx, cy = width // 2, height // 2
+    
+    # Get the HSV value of the center pixel
+    pixel_center = hsv[cy, cx]
+    hue_value = pixel_center[0]
+    sat_value = pixel_center[1]
+    val_value = pixel_center[2]
+    
+    # Draw a circle in the center so you know where to aim
+    cv2.circle(frame, (cx, cy), 5, (255, 255, 255), 2)
+    # -------------------------------------------
 
-    # Threshold the HSV image to get only blue colors
-    mask = cv2.inRange(hsv, lower_blue, upper_blue)
+    # --- LOOP THROUGH EACH DEFINED COLOR ---
+    for color_name, params in color_definitions.items():
+        final_mask = np.zeros(hsv.shape[:2], dtype="uint8")
+        
+        for (lower, upper) in params["ranges"]:
+            temp_mask = cv2.inRange(hsv, lower, upper)
+            final_mask = cv2.bitwise_or(final_mask, temp_mask)
 
-    # Clean up noise
-    mask = cv2.erode(mask, None, iterations=2)
-    mask = cv2.dilate(mask, None, iterations=2)
- 
-    # Object recognition logic
-    # Find contours in mask
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        final_mask = cv2.erode(final_mask, None, iterations=2)
+        final_mask = cv2.dilate(final_mask, None, iterations=2)
 
-    object_detected = False
+        contours, _ = cv2.findContours(final_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # If any contours are found
+        if len(contours) > 0:
+            c = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(c)
+
+            if area > 1000: # Increased area to reduce noise
+                x, y, w, h = cv2.boundingRect(c)
+                cv2.rectangle(frame, (x, y), (x+w, y+h), params["draw_color"], 2)
+                label = f"{color_name}"
+                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, params["draw_color"], 2)
+
     if len(contours) > 0:
-        # Find the largest contour (the biggest blue blob)
+        # Find the largest contour
         c = max(contours, key=cv2.contourArea)
         
         # Calculate the area size
@@ -74,19 +116,19 @@ while True:
         
         # Only react if the object is big enough (ignores tiny background noise)
         if area > 500: 
-            object_detected = True
             
             # Get the bounding box coordinates
             x, y, w, h = cv2.boundingRect(c)
             
             # Draw a rectangle around the object on the main frame
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+            cv2.rectangle(frame, (x, y), (x+w, y+h), params["draw_color"], 2)
             
             # Put text near the object
-            cv2.putText(frame, "TARGET DETECTED", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            label = f"{color_name} DETECTED"
+            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, params["draw_color"], 2)
             
             # Print to console (Optional - can be spammy)
-            print("Object in frame!")
+            print(color_name + " in frame!")
     
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"

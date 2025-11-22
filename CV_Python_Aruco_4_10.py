@@ -53,7 +53,7 @@ cv2.moveWindow("Canny", 0, 510)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------select camera here
+cap = cv2.VideoCapture(2) #----------------------------------------------------------------------------------select camera here
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,1920)
