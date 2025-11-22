@@ -9,13 +9,13 @@ import cv2
 import cv2.aruco as aruco
 # This is a library for mathematical functions for python (used later)
 import numpy as np
-# This is a library to get access to time-related functionalities
-import time # We will use this to ensure a steady processing rate
+# This is a library to get access to time-related functionalities. We will use this to ensure a steady processing rate
+import time 
 
 # Load the camera calibration values
-camera_calibration = np.load('Sample_Calibration.npz')
+camera_calibration = np.load('workdir/Calibration.npz') #from Jupyter notebook
 CM=camera_calibration['CM'] #camera matrix
-dist_coef=camera_calibration['dist_coef']# distortion coefficients from the camera
+dist_coef=camera_calibration['dist_coef'] #distortion coefficients from the camera
 
 # Define the ArUco dictionary and parameters
 marker_size = 40 # SIZE OF THE MARKER IN mm (HAVE TO MEASURE IF PRINTED)
@@ -26,22 +26,22 @@ parameters = aruco.DetectorParameters()
 processing_period = 0.25
 
 # Create three OpenCV named windows
-window_width = 768
+window_width = 768 #keep 1920:1080 ratio
 window_height = 432
 cv2.namedWindow("Frame", cv2.WINDOW_NORMAL)
 cv2.resizeWindow("Frame", window_width, window_height)
 cv2.namedWindow("Gray", cv2.WINDOW_NORMAL)
 cv2.resizeWindow("Gray", window_width, window_height)
-cv2.namedWindow("canny-image", cv2.WINDOW_NORMAL)
-cv2.resizeWindow("canny-image", window_width, window_height)
+cv2.namedWindow("Canny", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("Canny", window_width, window_height)
 
 # Position the windows next to each other
 cv2.moveWindow("Gray", 0, 0)
 cv2.moveWindow("Frame", 780, 0)
-cv2.moveWindow("canny-image", 0, 510)
+cv2.moveWindow("Canny", 0, 510)
 
 # Start capturing video
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(1) #1 is the external camera
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,1920)
@@ -60,14 +60,12 @@ while True:
 
     # Convert frame to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    cv2.imshow('Gray', gray)
 
     # Example of additional image processing: Gaussian Blur
     gauss = cv2.GaussianBlur(gray, (5, 5), 0)
 
     # Example of additional image processing: Canny Edge Detection
-    canny = cv2.Canny(gauss, 75, 100)
-    cv2.imshow('canny-image', canny)
+    canny = cv2.Canny(gauss, 75, 100)#change the thresholds if needed
 
     # Detect markers
     corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
@@ -126,17 +124,20 @@ while True:
         
         # Add text label to topmost marker on frame
         cv2.putText(frame, f"TOPMOST: ID {marker_id}", (int(topmost_y), 50), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 0), 2)
 
-    # Add the frame rate to the image
-    cv2.putText(gray, f"CAMERA FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    cv2.putText(gray, f"PROCESSING FPS: {1/processing_period:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    # Add the frame rate to the images
+    cv2.putText(gray, f"CAMERA FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(gray, f"PROCESSING FPS: {1/processing_period:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     cv2.putText(frame, f"CAMERA FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     cv2.putText(frame, f"PROCESSING FPS: {1/processing_period:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(canny, f"CAMERA FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(canny, f"PROCESSING FPS: {1/processing_period:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     # Display the resulting frame
     cv2.imshow('Gray', gray)
     cv2.imshow('Frame', frame)
+    cv2.imshow('Canny', canny)
 
     # Break the loop on 'q' key press
     if cv2.waitKey(1) & 0xFF == ord('q'):
