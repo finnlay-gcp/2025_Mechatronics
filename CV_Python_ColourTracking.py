@@ -7,6 +7,23 @@ import time
 # This is a library to handle file paths
 import os
 
+# --- GPIO SETUP (RASPBERRY PI LASER) ---
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    GPIO_AVAILABLE = False
+    print("NOTE: RPi.GPIO library not found. Running in simulation mode (Laser messages will print to console).")
+
+# ------------------------------------------------------------------------------------------------------------------Define the GPIO pin for the Laser
+LASER_PIN = 17 
+
+if GPIO_AVAILABLE:
+    GPIO.setmode(GPIO.BCM) # Use BCM numbering (GPIO 17, not Pin 11)
+    GPIO.setup(LASER_PIN, GPIO.OUT)
+    GPIO.output(LASER_PIN, GPIO.LOW) # Ensure laser is off at start
+# ---------------------------------------
+
 # Define a processing rate
 processing_period = 0.25
 
@@ -14,6 +31,7 @@ processing_period = 0.25
 # Define the size of the center detection box (in pixels)
 scan_band_height = 300 
 snapshot_folder = "Snapshots" # Define the folder name
+enable_snapshots = False  # --------------------------------------------------------------------------Set True to save images, False to disable saving
 
 # Dictionary structure: "Color Name": { "ranges": [ (lower, upper) ], "draw_color": (B, G, R) }
 color_definitions = {
@@ -38,6 +56,32 @@ color_definitions = {
     }
 }
 
+# --- USER INPUT SELECTION (NEW BLOCK) ---
+print("\n" + "="*40)
+print("      COLOR SCANNER CONFIGURATION")
+print("="*40)
+available_colors = list(color_definitions.keys())
+print(f"Available colors: {', '.join(available_colors)}")
+print("Type 'All' to scan for everything.")
+print("-" * 40)
+
+while True:
+    user_input = input(">> Enter color to scan: ").strip().capitalize()
+    
+    if user_input == "All":
+        print("Confirmed: Scanning for ALL colors.")
+        break
+    elif user_input in color_definitions:
+        # Filter the dictionary to only contain the selected color
+        # This effectively removes the other colors from the processing loop
+        color_definitions = {user_input: color_definitions[user_input]}
+        print(f"Confirmed: Scanning for {user_input} ONLY.")
+        break
+    else:
+        print(f"Error: '{user_input}' is not a valid option. Please try: {', '.join(available_colors)} or 'All'.")
+print("="*40 + "\n")
+# ----------------------------------------
+
 # Create OpenCV named windows
 window_width = 768 #keep 1920:1080 ratio
 window_height = 432 #keep 1920:1080 ratio
@@ -52,7 +96,7 @@ cv2.moveWindow("Colour Detection", 0, 0)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------select camera here
+cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------------------------------select camera here
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,1920)
@@ -154,11 +198,25 @@ while True:
                     obj_cx = x + (w // 2)
                     cv2.circle(frame, (obj_cx, obj_cy), 5, params["draw_color"], -1)
     
+    # --- LASER TRIGGER LOGIC ---
+    # If ANY valid color is found in the current frame, turn laser ON
+    if len(current_frame_colors) > 0:
+        if GPIO_AVAILABLE:
+            GPIO.output(LASER_PIN, GPIO.HIGH)
+        else:
+            # Visual feedback for testing on PC
+            cv2.putText(frame, "LASER ON", (width - 150, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    else:
+        if GPIO_AVAILABLE:
+            GPIO.output(LASER_PIN, GPIO.LOW)
+    # ---------------------------
+
     # --- SNAPSHOT LOGIC ---
     # Check which colors are NEW in the band (present now, but weren't previously)
     for col in current_frame_colors:
         if col not in active_colors:
-            take_snapshot(frame, col)
+            if enable_snapshots:
+                take_snapshot(frame, col)
     
     # Update the memory: active_colors now becomes exactly what we saw in this frame
     # If a color disappears, it is removed from this set automatically, 
@@ -190,5 +248,8 @@ while True:
     start_time = time.time()
 
 # When everything is done, release the capture and close windows
+if GPIO_AVAILABLE:
+    GPIO.cleanup() # Reset the GPIO pins safely
+
 cap.release()
 cv2.destroyAllWindows()
