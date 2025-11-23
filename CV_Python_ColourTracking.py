@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 # This is a library to get access to time-related functionalities. We will use this to ensure a steady processing rate
 import time 
+# This is a library to handle file paths
+import os
 
 # Define a processing rate
 processing_period = 0.25
@@ -11,6 +13,7 @@ processing_period = 0.25
 # --- CONFIGURATION ---
 # Define the size of the center detection box (in pixels)
 scan_band_height = 300 
+snapshot_folder = "Snapshots" # Define the folder name
 
 # Dictionary structure: "Color Name": { "ranges": [ (lower, upper) ], "draw_color": (B, G, R) }
 color_definitions = {
@@ -59,6 +62,25 @@ cap.set(4,1080)
 start_time = time.time()
 fps = 0
 
+# --- SNAPSHOT CONFIGURATION ---
+# Create the directory if it doesn't exist (safety check)
+if not os.path.exists(snapshot_folder):
+    os.makedirs(snapshot_folder)
+    print(f"Created directory: {snapshot_folder}")
+
+def take_snapshot(frame, color_name):
+    """Saves the current frame to the subfolder."""
+    timestamp = int(time.time() * 1000)
+    # Create the full path: SNAPSHOTS/detected_Color_Time.jpg
+    filename = os.path.join(snapshot_folder, f"detected_{color_name}_{timestamp}.jpg")
+    
+    cv2.imwrite(filename, frame)
+    print(f"*** SNAPSHOT SAVED: {filename} ***")
+
+# Set to track which colors are CURRENTLY inside the band across frames
+active_colors = set() 
+# -------------------------
+
 while True:
     # Capture frame-by-frame
     ret, frame = cap.read()
@@ -90,6 +112,8 @@ while True:
     cv2.putText(frame, "SCAN BAND", (10, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     # -------------------------------------------
 
+    # Track colors detected IN THIS SPECIFIC FRAME
+    current_frame_colors = set()
 
     # --- LOOP THROUGH EACH DEFINED COLOR ---
     for color_name, params in color_definitions.items():
@@ -110,15 +134,17 @@ while True:
 
             if area > 1000: # Increased area to reduce noise
                 x, y, w, h = cv2.boundingRect(c)
-                
+
                 # --- 2. CHECK VERTICAL POSITION ONLY ---
                 # Calculate center Y of the detected object
                 obj_cy = y + (h // 2)
 
                 # Check if object center Y is within the top and bottom band limits
-                # We REMOVED the X-axis (horizontal) check here
                 if band_top_y < obj_cy < band_bottom_y:
                     
+                    # Mark this color as present in the band this frame
+                    current_frame_colors.add(color_name)
+
                     # Draw rectangle and text
                     cv2.rectangle(frame, (x, y), (x+w, y+h), params["draw_color"], 2)
                     label = f"{color_name}"
@@ -127,6 +153,18 @@ while True:
                     # Draw a dot at the object center
                     obj_cx = x + (w // 2)
                     cv2.circle(frame, (obj_cx, obj_cy), 5, params["draw_color"], -1)
+    
+    # --- SNAPSHOT LOGIC ---
+    # Check which colors are NEW in the band (present now, but weren't previously)
+    for col in current_frame_colors:
+        if col not in active_colors:
+            take_snapshot(frame, col)
+    
+    # Update the memory: active_colors now becomes exactly what we saw in this frame
+    # If a color disappears, it is removed from this set automatically, 
+    # so if it re-enters later, it will be seen as "new" again.
+    active_colors = current_frame_colors
+    # ----------------------
 
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
