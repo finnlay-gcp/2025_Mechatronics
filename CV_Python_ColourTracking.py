@@ -8,7 +8,10 @@ import time
 # Define a processing rate
 processing_period = 0.25
 
-# --- CONFIGURATION FOR COLORS ---
+# --- CONFIGURATION ---
+# Define the size of the center detection box (in pixels)
+scan_band_height = 300 
+
 # Dictionary structure: "Color Name": { "ranges": [ (lower, upper) ], "draw_color": (B, G, R) }
 color_definitions = {
     "Red": {
@@ -69,20 +72,24 @@ while True:
     # Convert BGR to HSV
     hsv = cv2.cvtColor(gauss, cv2.COLOR_BGR2HSV)
 
-    # --- DEBUGGING TOOL: CENTER PIXEL PROBE ---
-    # Get the center of the screen
+    # --- 1. CALCULATE SCAN BAND LIMITS ---
     height, width, _ = frame.shape
-    cx, cy = width // 2, height // 2
+    cy = height // 2
     
-    # Get the HSV value of the center pixel
-    pixel_center = hsv[cy, cx]
-    hue_value = pixel_center[0]
-    sat_value = pixel_center[1]
-    val_value = pixel_center[2]
+    # Calculate the top and bottom Y-coordinates of the band
+    band_half_height = scan_band_height // 2
+    band_top_y = cy - band_half_height
+    band_bottom_y = cy + band_half_height
+
+    # Draw the "Scan Band" lines across the whole screen
+    # Line 1: Top limit
+    cv2.line(frame, (0, band_top_y), (width, band_top_y), (200, 200, 200), 2)
+    # Line 2: Bottom limit
+    cv2.line(frame, (0, band_bottom_y), (width, band_bottom_y), (200, 200, 200), 2)
     
-    # Draw a circle in the center so you know where to aim
-    cv2.circle(frame, (cx, cy), 5, (255, 255, 255), 2)
+    cv2.putText(frame, "SCAN BAND", (10, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     # -------------------------------------------
+
 
     # --- LOOP THROUGH EACH DEFINED COLOR ---
     for color_name, params in color_definitions.items():
@@ -103,47 +110,33 @@ while True:
 
             if area > 1000: # Increased area to reduce noise
                 x, y, w, h = cv2.boundingRect(c)
-                cv2.rectangle(frame, (x, y), (x+w, y+h), params["draw_color"], 2)
-                label = f"{color_name}"
-                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, params["draw_color"], 2)
+                
+                # --- 2. CHECK VERTICAL POSITION ONLY ---
+                # Calculate center Y of the detected object
+                obj_cy = y + (h // 2)
 
-    if len(contours) > 0:
-        # Find the largest contour
-        c = max(contours, key=cv2.contourArea)
-        
-        # Calculate the area size
-        area = cv2.contourArea(c)
-        
-        # Only react if the object is big enough (ignores tiny background noise)
-        if area > 500: 
-            
-            # Get the bounding box coordinates
-            x, y, w, h = cv2.boundingRect(c)
-            
-            # Draw a rectangle around the object on the main frame
-            cv2.rectangle(frame, (x, y), (x+w, y+h), params["draw_color"], 2)
-            
-            # Put text near the object
-            label = f"{color_name} DETECTED"
-            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, params["draw_color"], 2)
-            
-            # Print to console (Optional - can be spammy)
-            print(color_name + " in frame!")
-    
+                # Check if object center Y is within the top and bottom band limits
+                # We REMOVED the X-axis (horizontal) check here
+                if band_top_y < obj_cy < band_bottom_y:
+                    
+                    # Draw rectangle and text
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), params["draw_color"], 2)
+                    label = f"{color_name}"
+                    cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, params["draw_color"], 2)
+                    
+                    # Draw a dot at the object center
+                    obj_cx = x + (w // 2)
+                    cv2.circle(frame, (obj_cx, obj_cy), 5, params["draw_color"], -1)
+
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
     proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
 
-    images_to_label = [frame]
-
-    for img in images_to_label:
-        cv2.putText(img, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(img, proc_label, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    fps_label = f"CAMERA FPS: {fps:.2f}"
+    cv2.putText(frame, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     # Display the resulting frame
-    show_list = [("Colour Detection", frame)]
-    for name, img in show_list:
-        cv2.imshow(name, img)
+    cv2.imshow("Colour Detection", frame)
 
     # Break the loop on 'q' key press (use longer wait time to allow window responsiveness)
     key = cv2.waitKey(1) & 0xFF
