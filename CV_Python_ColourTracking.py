@@ -83,8 +83,8 @@ print("="*40 + "\n")
 # ----------------------------------------
 
 # Create OpenCV named windows
-window_width = 768 #keep 1920:1080 ratio
-window_height = 432 #keep 1920:1080 ratio
+window_width = 768*2 #keep 1920:1080 ratio
+window_height = 432*2 #keep 1920:1080 ratio
 print("Creating windows...")
 window_names = ["Colour Detection"]
 for name in window_names:
@@ -153,7 +153,7 @@ while True:
     # Line 2: Bottom limit
     cv2.line(frame, (0, band_bottom_y), (width, band_bottom_y), (200, 200, 200), 2)
     
-    cv2.putText(frame, "SCAN BAND", (10, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    cv2.putText(frame, "SCAN BAND", (10, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 2, (200, 200, 200), 3)
     # -------------------------------------------
 
     # Track colors detected IN THIS SPECIFIC FRAME
@@ -205,7 +205,7 @@ while True:
             GPIO.output(LASER_PIN, GPIO.HIGH)
         else:
             # Visual feedback for testing on PC
-            cv2.putText(frame, "LASER ON", (width - 150, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(frame, "LASER ON", (width - 350, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
     else:
         if GPIO_AVAILABLE:
             GPIO.output(LASER_PIN, GPIO.LOW)
