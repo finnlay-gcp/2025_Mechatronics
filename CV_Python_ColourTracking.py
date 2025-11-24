@@ -196,11 +196,18 @@ while True:
     
     cv2.putText(frame, "SCAN BAND", (10, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 2, (200, 200, 200), 3)
     # -------------------------------------------
-
-    # Track colors detected in this frame
+    
+    # ---------------------------------------------------------
+    #  NEW LOGIC: FIND THE "CHAMPION" BLOB ACROSS ALL COLORS
+    # ---------------------------------------------------------
+    
+    # This variable will hold the data for the single largest blob found so far
+    # Format: {'area': 0, 'rect': (x,y,w,h), 'color': 'Name', 'params': params}
+    best_detection = None 
+    
     current_frame_colors = set()
 
-    # --- LOOP THROUGH EACH DEFINED COLOR ---
+    # Loop through every color selected
     for color_name, params in color_definitions.items():
         final_mask = np.zeros(hsv.shape[:2], dtype="uint8")
         
@@ -214,43 +221,60 @@ while True:
         contours, _ = cv2.findContours(final_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         if len(contours) > 0:
+            # Find the largest blob OF THIS COLOR
             c = max(contours, key=cv2.contourArea)
             area = cv2.contourArea(c)
 
-            if area > 1000: # Increased area to reduce noise
+            if area > 1000: 
                 x, y, w, h = cv2.boundingRect(c)
-
-                # --- 2. CHECK VERTICAL POSITION ONLY ---
-                # Calculate center Y of the detected object
                 obj_cy = y + (h // 2)
 
-                # Check if object center Y is within the top and bottom band limits
+                # Check if it is inside the band
                 if band_top_y < obj_cy < band_bottom_y:
                     
-                    # Mark this color as present in the band this frame
-                    current_frame_colors.add(color_name)
+                    # LOGIC CHANGE:
+                    # Instead of drawing immediately, we check if this blob is 
+                    # bigger than the previous best one we found in this frame.
+                    if best_detection is None or area > best_detection['area']:
+                        best_detection = {
+                            'area': area,
+                            'rect': (x, y, w, h),
+                            'color_name': color_name,
+                            'draw_color': params["draw_color"],
+                            'center': (x + w//2, obj_cy)
+                        }
 
-                    # Draw rectangle and text
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), params["draw_color"], 2)
-                    label = f"{color_name}"
-                    cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, params["draw_color"], 2)
-                    
-                    # Draw a dot at the object center
-                    obj_cx = x + (w // 2)
-                    cv2.circle(frame, (obj_cx, obj_cy), 5, params["draw_color"], -1)
-    
-    # --- LASER TRIGGER LOGIC ---
-    # If ANY valid color is found in the current frame, turn laser ON
-    if len(current_frame_colors) > 0:
+    # ---------------------------------------------------------
+    #  DRAWING & ACTIONS (HAPPENS ONCE PER FRAME)
+    # ---------------------------------------------------------
+
+    # If we found a valid "Champion" blob
+    if best_detection:
+        # Unpack the data
+        x, y, w, h = best_detection['rect']
+        color_name = best_detection['color_name']
+        draw_color = best_detection['draw_color']
+        cx, cy = best_detection['center']
+
+        # Draw the box
+        cv2.rectangle(frame, (x, y), (x+w, y+h), draw_color, 2)
+        label = f"{color_name}"
+        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, draw_color, 2)
+        cv2.circle(frame, (cx, cy), 5, draw_color, -1)
+
+        # Add to current colors set (for snapshot logic)
+        current_frame_colors.add(color_name)
+
+        # Turn Laser ON
         if GPIO_AVAILABLE:
             GPIO.output(LASER_PIN, GPIO.HIGH)
         else:
-            # Visual feedback for testing on PC
             cv2.putText(frame, "LASER ON", (width - 350, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
+    
     else:
+        # No valid blob found in any color
         if GPIO_AVAILABLE:
             GPIO.output(LASER_PIN, GPIO.LOW)
-    # ---------------------------
 
     # --- SNAPSHOT LOGIC ---
     # Check which colors are NEW in the band (present now, but weren't previously)
@@ -269,7 +293,6 @@ while True:
     fps_label = f"CAMERA FPS: {fps:.2f}"
     proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
 
-    fps_label = f"CAMERA FPS: {fps:.2f}"
     cv2.putText(frame, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     # Display the resulting frame
