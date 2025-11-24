@@ -90,7 +90,7 @@ while True:
     # 1. Get input and split by comma
     raw_input = input(">> Enter color(s) to scan (comma-separated): ")
     
-    # 2. Clean the list: Remove whitespace and capitalize each item
+    # 2. Remove whitespace and capitalize each item
     selected_inputs = [item.strip().capitalize() for item in raw_input.split(',')]
 
     # 3. Handle "All" selection
@@ -236,7 +236,7 @@ while True:
     #  DRAWING & ACTIONS (HAPPENS ONCE PER FRAME)
     # ---------------------------------------------------------
 
-    # If we found a valid "Champion" blob
+    # If found a valid "Champion" blob
     if best_detection:
         # Unpack the data
         x, y, w, h = best_detection['rect']
