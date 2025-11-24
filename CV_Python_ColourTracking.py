@@ -10,8 +10,8 @@ import os
 import socket
 
 # --- NETWORK CONFIGURATION (UDP) ---
-RPI_IP = "138.38.226.136"  # <----------------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
-RPI_PORT = 5005           # -----------------------------------------------------------------------The port the Pi will listen on
+RPI_IP = "172.26.236.13"  # <----------------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_PORT = 50002 # -----------------------------------------------------------------------The port the Pi will listen on
 # Initialize UDP Socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -128,7 +128,7 @@ cv2.moveWindow("Colour Detection", 0, 0)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(2) #----------------------------------------------------------------------------------------------------------select camera here
+cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------------------------------select camera here
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,1920)
@@ -257,21 +257,19 @@ while True:
         # Display "LASER ON" text on screen
         cv2.putText(frame, "LASER ON", (width - 350, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
         
-        # 2. UDP SEND: ON
-        # We send the bytes for "ON" to the RPi
-    
-        try:
-            sock.sendto(b'\x01', (RPI_IP, RPI_PORT))
-        except Exception as e:
-            print(f"UDP Error: {e}")
-
+    # ---------------------------------------------------------
+    #  UDP COMMUNICATION (MOVED OUTSIDE THE IF STATEMENT)
+    # ---------------------------------------------------------
+    # This now runs every single frame, sending 1 OR 0.
+    if best_detection:
+        udp_message = b'\x01' # Byte 1 (ON)
     else:
-        # 2. UDP SEND: OFF
-        # We send "OFF" to ensure the RPi knows to stop
-        try:
-            sock.sendto(b'\x00', (RPI_IP, RPI_PORT))
-        except Exception as e:
-            print(f"UDP Error: {e}")
+        udp_message = b'\x00' # Byte 0 (OFF)
+
+    try:
+        sock.sendto(udp_message, (RPI_IP, RPI_PORT))
+    except Exception as e:
+        print(f"UDP Error: {e}")
 
     # --- SNAPSHOT LOGIC ---
     # Check which colors are NEW in the band (present now, but weren't previously)
@@ -285,6 +283,13 @@ while True:
     # so if it re-enters later, it will be seen as "new" again.
     active_colors = current_frame_colors
     # ----------------------
+
+    # FPS Calculation & Display
+    # We calculate real FPS now since we removed the sleep
+    elapsed_time = time.time() - start_time
+    if elapsed_time > 0:
+        fps = 1 / elapsed_time
+    start_time = time.time()
 
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
@@ -301,13 +306,6 @@ while True:
     if key == ord('q'):
         print("\nQuitting...")
         break
-
-    # Ensure a steady processing rate
-    elapsed_time = time.time() - start_time
-    fps = 1 / elapsed_time
-    if elapsed_time < processing_period:
-        time.sleep(processing_period - elapsed_time)
-    start_time = time.time()
 
 # When everything is done, release the capture and close windows
 cap.release()
