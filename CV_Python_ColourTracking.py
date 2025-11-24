@@ -133,7 +133,7 @@ cap = cv2.VideoCapture(1) #-----------------------------------------------------
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,1920)
 cap.set(4,1080)
-
+cap.set(cv2.CAP_PROP_FPS, 30) # Attempt to set FPS to 30
 # Set the starting time
 start_time = time.time()
 fps = 0
