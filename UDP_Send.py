@@ -10,7 +10,7 @@ This is an example to send data as a UDP datagram.
 import socket   # This library will allow you to communicate over the network
 
 # This is the IP address of the machine that the data will be send to
-UDP_IP = "192.168.0.100"
+UDP_IP = "172.26.236.13"
 
 # This is the REMOTE port the machine will reply on (on that machine this is the value for the LOCAL port)
 UDP_PORT = 50001
@@ -21,7 +21,7 @@ MESSAGE = "Hello, World!"
 print ("UDP target IP:", UDP_IP)
 print ("UDP target port:", UDP_PORT)
 print ("message:", MESSAGE)
- 
+
 # Create the socket for the UDP communication
 sock = socket.socket(socket.AF_INET,    # Family of addresses, in this case IP type 
                      socket.SOCK_DGRAM) # What protocol to use, in this case UDP (datagram)

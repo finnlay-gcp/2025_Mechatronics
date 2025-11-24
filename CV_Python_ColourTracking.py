@@ -7,23 +7,6 @@ import time
 # This is a library to handle file paths
 import os
 
-# --- GPIO SETUP (RASPBERRY PI LASER) ---
-try:
-    import RPi.GPIO as GPIO
-    GPIO_AVAILABLE = True
-except ImportError:
-    GPIO_AVAILABLE = False
-    print("NOTE: RPi.GPIO library not found. Running in simulation mode (Laser messages will print to console).")
-
-# ------------------------------------------------------------------------------------------------------------------Define the GPIO pin for the Laser
-LASER_PIN = 17 
-
-if GPIO_AVAILABLE:
-    GPIO.setmode(GPIO.BCM) # Use BCM numbering (GPIO 17, not Pin 11)
-    GPIO.setup(LASER_PIN, GPIO.OUT)
-    GPIO.output(LASER_PIN, GPIO.LOW) # Ensure laser is off at start
-# ---------------------------------------
-
 # Define a processing rate
 processing_period = 0.25
 
@@ -265,17 +248,10 @@ while True:
         # Add to current colors set (for snapshot logic)
         current_frame_colors.add(color_name)
 
-        # Turn Laser ON
-        if GPIO_AVAILABLE:
-            GPIO.output(LASER_PIN, GPIO.HIGH)
-        else:
-            cv2.putText(frame, "LASER ON", (width - 350, 50), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
+        # --- VISUAL ALERT (Replaces Laser) ---
+        # Display "LASER ON" text on screen
+        cv2.putText(frame, "LASER ON", (width - 350, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
     
-    else:
-        # No valid blob found in any color
-        if GPIO_AVAILABLE:
-            GPIO.output(LASER_PIN, GPIO.LOW)
-
     # --- SNAPSHOT LOGIC ---
     # Check which colors are NEW in the band (present now, but weren't previously)
     for col in current_frame_colors:
@@ -294,7 +270,8 @@ while True:
     proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
 
     cv2.putText(frame, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
+    cv2.putText(frame, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    
     # Display the resulting frame
     cv2.imshow("Colour Detection", frame)
 
@@ -312,8 +289,5 @@ while True:
     start_time = time.time()
 
 # When everything is done, release the capture and close windows
-if GPIO_AVAILABLE:
-    GPIO.cleanup() # Reset the GPIO pins safely
-
 cap.release()
 cv2.destroyAllWindows()
