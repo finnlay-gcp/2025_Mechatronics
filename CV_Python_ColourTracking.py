@@ -6,6 +6,14 @@ import numpy as np
 import time 
 # This is a library to handle file paths
 import os
+# Library for networking (UDP)
+import socket
+
+# --- NETWORK CONFIGURATION (UDP) ---
+RPI_IP = "138.38.226.136"  # <----------------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_PORT = 5005           # -----------------------------------------------------------------------The port the Pi will listen on
+# Initialize UDP Socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # Define a processing rate
 processing_period = 0.25
@@ -181,7 +189,7 @@ while True:
     # -------------------------------------------
     
     # ---------------------------------------------------------
-    #  NEW LOGIC: FIND THE "CHAMPION" BLOB ACROSS ALL COLORS
+    #  FIND THE CHAMPION BLOB ACROSS ALL COLORS
     # ---------------------------------------------------------
     
     # This variable will hold the data for the single largest blob found so far
@@ -215,9 +223,6 @@ while True:
                 # Check if it is inside the band
                 if band_top_y < obj_cy < band_bottom_y:
                     
-                    # LOGIC CHANGE:
-                    # Instead of drawing immediately, we check if this blob is 
-                    # bigger than the previous best one we found in this frame.
                     if best_detection is None or area > best_detection['area']:
                         best_detection = {
                             'area': area,
@@ -251,7 +256,23 @@ while True:
         # --- VISUAL ALERT (Replaces Laser) ---
         # Display "LASER ON" text on screen
         cv2.putText(frame, "LASER ON", (width - 350, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
+        
+        # 2. UDP SEND: ON
+        # We send the bytes for "ON" to the RPi
     
+        try:
+            sock.sendto(b'\x01', (RPI_IP, RPI_PORT))
+        except Exception as e:
+            print(f"UDP Error: {e}")
+
+    else:
+        # 2. UDP SEND: OFF
+        # We send "OFF" to ensure the RPi knows to stop
+        try:
+            sock.sendto(b'\x00', (RPI_IP, RPI_PORT))
+        except Exception as e:
+            print(f"UDP Error: {e}")
+
     # --- SNAPSHOT LOGIC ---
     # Check which colors are NEW in the band (present now, but weren't previously)
     for col in current_frame_colors:
@@ -291,3 +312,4 @@ while True:
 # When everything is done, release the capture and close windows
 cap.release()
 cv2.destroyAllWindows()
+sock.close() # Close the UDP socket cleanly
