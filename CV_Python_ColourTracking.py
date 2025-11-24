@@ -56,7 +56,7 @@ color_definitions = {
     }
 }
 
-# --- USER INPUT SELECTION (NEW BLOCK) ---
+# --- USER INPUT SELECTION ---
 print("\n" + "="*40)
 print("      COLOR SCANNER CONFIGURATION")
 print("="*40)
@@ -66,20 +66,37 @@ print("Type 'All' to scan for everything.")
 print("-" * 40)
 
 while True:
-    user_input = input(">> Enter color to scan: ").strip().capitalize()
+    # 1. Get input and split by comma
+    raw_input = input(">> Enter color(s) to scan (comma-separated): ")
     
-    if user_input == "All":
+    # 2. Clean the list: Remove whitespace and capitalize each item
+    # Example input: "red, blue " becomes ['Red', 'Blue']
+    selected_inputs = [item.strip().capitalize() for item in raw_input.split(',')]
+
+    # 3. Handle "All" selection
+    if "All" in selected_inputs:
         print("Confirmed: Scanning for ALL colors.")
         break
-    elif user_input in color_definitions:
-        # Filter the dictionary to only contain the selected color
-        # This effectively removes the other colors from the processing loop
-        color_definitions = {user_input: color_definitions[user_input]}
-        print(f"Confirmed: Scanning for {user_input} ONLY.")
+
+    # 4. Validation: Check if there are any invalid colors in the list
+    # We find items in selected_inputs that are NOT in color_definitions
+    invalid_choices = [c for c in selected_inputs if c not in color_definitions]
+
+    if not invalid_choices and selected_inputs:
+        # If invalid_choices is empty, it means all inputs are valid
+        
+        # Rebuild the dictionary to ONLY include the keys the user selected
+        color_definitions = {k: v for k, v in color_definitions.items() if k in selected_inputs}
+        
+        formatted_list = ", ".join(selected_inputs)
+        print(f"Confirmed: Scanning for: {formatted_list}")
         break
     else:
-        print(f"Error: '{user_input}' is not a valid option. Please try: {', '.join(available_colors)} or 'All'.")
-print("="*40 + "\n")
+        # Tell the user exactly which inputs were wrong
+        error_msg = ", ".join(invalid_choices) if invalid_choices else "Empty input"
+        print(f"Error: The following are not valid options: {error_msg}")
+        print(f"Available options: {', '.join(available_colors)} or 'All'.")
+
 # ----------------------------------------
 
 # Create OpenCV named windows
@@ -96,7 +113,7 @@ cv2.moveWindow("Colour Detection", 0, 0)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------------------------------select camera here
+cap = cv2.VideoCapture(2) #----------------------------------------------------------------------------------------------------------select camera here
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,1920)

@@ -10,8 +10,8 @@ import os
 import socket
 
 # --- NETWORK CONFIGURATION ---
-RPI_IP_ADDRESS = "192.168.1.15" # <--- CHANGE THIS TO YOUR PI'S IP ADDRESS
-RPI_PORT = 5005
+RPI_IP_ADDRESS = "192.168.1.15" # <--------------------------------------------------------------------------------- CHANGE THIS TO YOUR PI'S IP ADDRESS
+RPI_PORT = 5005 # ------------------------------------------------------------------------------------------------ CHANGE THIS TO MATCH THE PORT IN laser_server.py
 # -----------------------------
 
 # Setup UDP Socket
