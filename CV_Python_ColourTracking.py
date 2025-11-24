@@ -42,6 +42,18 @@ color_definitions = {
         ],
         "draw_color": (0, 0, 255) # Red in BGR
     },
+    "Orange": {
+        "ranges": [
+            (np.array([10, 100, 20]), np.array([25, 255, 255]))    # Orange range
+        ],
+        "draw_color": (0, 165, 255) # Orange in BGR
+    },
+    "Yellow": {
+        "ranges": [
+            (np.array([25, 70, 120]), np.array([35, 255, 255]))    # Yellow range
+        ],
+        "draw_color": (0, 255, 255) # Yellow in BGR
+    },
     "Green": {
         "ranges": [
             (np.array([35, 50, 50]), np.array([90, 255, 255]))    # Green range
@@ -53,6 +65,24 @@ color_definitions = {
             (np.array([95, 70, 50]), np.array([155, 255, 255]))   # Blue range
         ],
         "draw_color": (255, 0, 0) # Blue in BGR
+    },
+    "Purple": {
+        "ranges": [
+            (np.array([140, 70, 50]), np.array([165, 255, 255]))   # Purple range
+        ],
+        "draw_color": (255, 0, 255) # Purple in BGR
+    },
+    "Pink": {
+        "ranges": [
+            (np.array([160, 70, 50]), np.array([170, 255, 255]))   # Pink range
+        ],
+        "draw_color": (203, 192, 255) # Pink in BGR
+    },
+    "Brown": {
+        "ranges": [
+            (np.array([10, 100, 20]), np.array([20, 255, 200]))    # Brown range
+        ],
+        "draw_color": (42, 42, 165) # Brown in BGR
     }
 }
 
@@ -70,7 +100,6 @@ while True:
     raw_input = input(">> Enter color(s) to scan (comma-separated): ")
     
     # 2. Clean the list: Remove whitespace and capitalize each item
-    # Example input: "red, blue " becomes ['Red', 'Blue']
     selected_inputs = [item.strip().capitalize() for item in raw_input.split(',')]
 
     # 3. Handle "All" selection
@@ -79,12 +108,9 @@ while True:
         break
 
     # 4. Validation: Check if there are any invalid colors in the list
-    # We find items in selected_inputs that are NOT in color_definitions
     invalid_choices = [c for c in selected_inputs if c not in color_definitions]
 
-    if not invalid_choices and selected_inputs:
-        # If invalid_choices is empty, it means all inputs are valid
-        
+    if not invalid_choices and selected_inputs:     
         # Rebuild the dictionary to ONLY include the keys the user selected
         color_definitions = {k: v for k, v in color_definitions.items() if k in selected_inputs}
         
@@ -92,12 +118,10 @@ while True:
         print(f"Confirmed: Scanning for: {formatted_list}")
         break
     else:
-        # Tell the user exactly which inputs were wrong
+        # Tell the user  which inputs were wrong
         error_msg = ", ".join(invalid_choices) if invalid_choices else "Empty input"
         print(f"Error: The following are not valid options: {error_msg}")
         print(f"Available options: {', '.join(available_colors)} or 'All'.")
-
-# ----------------------------------------
 
 # Create OpenCV named windows
 window_width = 768*2 #keep 1920:1080 ratio
@@ -173,7 +197,7 @@ while True:
     cv2.putText(frame, "SCAN BAND", (10, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 2, (200, 200, 200), 3)
     # -------------------------------------------
 
-    # Track colors detected IN THIS SPECIFIC FRAME
+    # Track colors detected in this frame
     current_frame_colors = set()
 
     # --- LOOP THROUGH EACH DEFINED COLOR ---
