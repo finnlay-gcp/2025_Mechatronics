@@ -11,16 +11,17 @@ import socket
 
 # --- NETWORK CONFIGURATION (UDP) ---
 
-RPI_IP = "172.26.236.13"  # <-----------------------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
-RPI_PORT = 50002 # -----------------------------------------------------------------------------------------------------The port the Pi will listen on
+RPI_IP = "172.26.236.13"  # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_PORT = 50002 # -------------------------------------------------------------------------------------The port the Pi will listen on
 # Initialize UDP Socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # --- CONFIGURATION ---
 # Define the size of the center detection box (in pixels)
-scan_band_height = 100
+scan_band_height = 80 #----------------------------------------------------------------------------------------------------band height
+scan_band_width = 300 #-----------------------------------------------------------------------------------------------------band width
 snapshot_folder = "Snapshots" # Define the folder name
-enable_snapshots = False  # ---------------------------------------------------------------------------Set True to save images, False to disable saving
+enable_snapshots = False  # ----------------------------------------------------------Set True to save images, False to disable saving
 
 # We don't sleep anymore. We use this to track when we last sent a message.
 last_udp_send_time = 0
@@ -110,7 +111,7 @@ cv2.moveWindow("Colour Detection", 0, 0)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------------------------------select camera here
+cap = cv2.VideoCapture(2) #-----------------------------------------------------------------------------------------Select camera here
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,640)
@@ -152,25 +153,30 @@ while True:
     # --- 1. CALCULATE SCAN BAND LIMITS ---
     height, width, _ = frame.shape
     cy = height // 2
-    
-    # Calculate the top and bottom Y-coordinates of the band
+    cx = width // 2
+
+    # Calculate the top and bottom Y-coordinates (Horizontal Band)
     band_half_height = scan_band_height // 2
     band_top_y = cy - band_half_height
     band_bottom_y = cy + band_half_height
 
-    # Draw the "Scan Band" lines across the whole screen
-    # Line 1: Top limit
+    # Calculate the left and right X-coordinates (Vertical Band)
+    band_half_width = scan_band_width // 2
+    band_left_x = cx - band_half_width
+    band_right_x = cx + band_half_width
+
+   # --- DRAWING THE LIMIT LINES ---
+    # Horizontal Lines
     cv2.line(frame, (0, band_top_y), (width, band_top_y), (200, 200, 200), 2)
-    # Line 2: Bottom limit
     cv2.line(frame, (0, band_bottom_y), (width, band_bottom_y), (200, 200, 200), 2)
     
-    cv2.putText(frame, "SCAN BAND", (10, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    # Vertical Lines (New)
+    cv2.line(frame, (band_left_x, 0), (band_left_x, height), (200, 200, 200), 2)
+    cv2.line(frame, (band_right_x, 0), (band_right_x, height), (200, 200, 200), 2)
+    
+    cv2.putText(frame, "SCAN ZONE", (band_left_x + 5, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     # -------------------------------------------
-    
-    # ---------------------------------------------------------
-    #  FIND THE CHAMPION BLOB ACROSS ALL COLORS
-    # ---------------------------------------------------------
-    
+
     # This variable will hold the data for the single largest blob found so far
     # Format: {'area': 0, 'rect': (x,y,w,h), 'color': 'Name', 'params': params}
     best_detection = None 
@@ -198,9 +204,13 @@ while True:
             if area > 1000: 
                 x, y, w, h = cv2.boundingRect(c)
                 obj_cy = y + (h // 2)
+                obj_cx = x + (w // 2)
 
                 # Check if it is inside the band
-                if band_top_y < obj_cy < band_bottom_y:
+                in_horizontal = band_top_y < obj_cy < band_bottom_y
+                in_vertical = band_left_x < obj_cx < band_right_x
+
+                if in_horizontal and in_vertical:
                     
                     if best_detection is None or area > best_detection['area']:
                         best_detection = {
@@ -208,9 +218,8 @@ while True:
                             'rect': (x, y, w, h),
                             'color_name': color_name,
                             'draw_color': params["draw_color"],
-                            'center': (x + w//2, obj_cy)
+                            'center': (obj_cx, obj_cy)
                         }
-
     # ---------------------------------------------------------
     #  DRAWING & ACTIONS (HAPPENS ONCE PER FRAME)
     # ---------------------------------------------------------
