@@ -16,67 +16,47 @@ RPI_PORT = 50002 # -------------------------------------------------------------
 # Initialize UDP Socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-# Define a processing rate
-TARGET_FPS = 10 #------------------------------------------------------------------------------------------------------------------Set target FPS here
-processing_period = 1.0 / TARGET_FPS
-
 # --- CONFIGURATION ---
 # Define the size of the center detection box (in pixels)
-scan_band_height = 300 
+scan_band_height = 100
 snapshot_folder = "Snapshots" # Define the folder name
 enable_snapshots = False  # ---------------------------------------------------------------------------Set True to save images, False to disable saving
 
-# Dictionary structure: "Color Name": { "ranges": [ (lower, upper) ], "draw_color": (B, G, R) }
+# We don't sleep anymore. We use this to track when we last sent a message.
+last_udp_send_time = 0
+UDP_INTERVAL = 0.1  # 10 times a second (0.1s)
+
+S_MIN = 50 
+V_MIN = 50
+
 color_definitions = {
     "Red": {
         "ranges": [
-            (np.array([0, 70, 50]), np.array([15, 255, 255])),     # Lower Red (0-10)
-            (np.array([165, 70, 50]), np.array([180, 255, 255]))   # Upper Red (170-180)
+            # Lower Red (Includes Orange-Red up to Hue 20)
+            (np.array([0, S_MIN, V_MIN]), np.array([20, 255, 255])), 
+            # Upper Red (Includes Pink-Red from Hue 160)
+            (np.array([160, S_MIN, V_MIN]), np.array([180, 255, 255])) 
         ],
-        "draw_color": (0, 0, 255) # Red in BGR
-    },
-    "Orange": {
-        "ranges": [
-            (np.array([10, 100, 20]), np.array([25, 255, 255]))    # Orange range
-        ],
-        "draw_color": (0, 165, 255) # Orange in BGR
-    },
-    "Yellow": {
-        "ranges": [
-            (np.array([25, 70, 120]), np.array([35, 255, 255]))    # Yellow range
-        ],
-        "draw_color": (0, 255, 255) # Yellow in BGR
+        "draw_color": (0, 0, 255) # BGR format
     },
     "Green": {
         "ranges": [
-            (np.array([35, 50, 50]), np.array([90, 255, 255]))    # Green range
+            # Green Range (35-90)
+            # Starts after the Yellow gap (20-35) 
+            # Ends before the Cyan gap (90-100)
+            (np.array([35, S_MIN, V_MIN]), np.array([90, 255, 255])) 
         ],
-        "draw_color": (0, 255, 0) # Green in BGR
+        "draw_color": (0, 255, 0)
     },
     "Blue": {
         "ranges": [
-            (np.array([95, 70, 50]), np.array([155, 255, 255]))   # Blue range
+            # Blue Range (100-150)
+            # Starts after the Cyan gap (90-100)
+            # Ends before the Purple/Magenta gap (150-160)
+            (np.array([100, S_MIN, V_MIN]), np.array([150, 255, 255])) 
         ],
-        "draw_color": (255, 0, 0) # Blue in BGR
+        "draw_color": (255, 0, 0)
     },
-    "Purple": {
-        "ranges": [
-            (np.array([140, 70, 50]), np.array([165, 255, 255]))   # Purple range
-        ],
-        "draw_color": (255, 0, 255) # Purple in BGR
-    },
-    "Pink": {
-        "ranges": [
-            (np.array([160, 70, 50]), np.array([170, 255, 255]))   # Pink range
-        ],
-        "draw_color": (203, 192, 255) # Pink in BGR
-    },
-    "Brown": {
-        "ranges": [
-            (np.array([10, 100, 20]), np.array([20, 255, 200]))    # Brown range
-        ],
-        "draw_color": (42, 42, 165) # Brown in BGR
-    }
 }
 
 # --- USER INPUT SELECTION ---
@@ -133,10 +113,8 @@ print("Windows created. Starting camera feed...\n")
 cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------------------------------select camera here
 
 # Set the width and heigth of the camera to 1920x1080
-cap.set(3,1920)
-cap.set(4,1080)
-# Set the fps
-cap.set(5, 10)#----------------------------------------------------------------------------------------------------------------------set camera fps here
+cap.set(3,640)
+cap.set(4,360)
 
 # --- SNAPSHOT CONFIGURATION ---
 # Create the directory if it doesn't exist (safety check)
@@ -155,11 +133,10 @@ def take_snapshot(frame, color_name):
 
 # Set to track which colors are CURRENTLY inside the band across frames
 active_colors = set() 
-prev_loop_time = time.time()
+prev_frame_time = time.time()
 # -------------------------
 
 while True:
-    loop_start_time = time.time()  # Record the start time of this loop iteration
     # Capture frame-by-frame
     ret, frame = cap.read()
     if not ret:
@@ -187,7 +164,7 @@ while True:
     # Line 2: Bottom limit
     cv2.line(frame, (0, band_bottom_y), (width, band_bottom_y), (200, 200, 200), 2)
     
-    cv2.putText(frame, "SCAN BAND", (10, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 2, (200, 200, 200), 3)
+    cv2.putText(frame, "SCAN BAND", (10, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     # -------------------------------------------
     
     # ---------------------------------------------------------
@@ -249,7 +226,7 @@ while True:
         # Draw the box
         cv2.rectangle(frame, (x, y), (x+w, y+h), draw_color, 2)
         label = f"{color_name}"
-        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, draw_color, 2)
+        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, draw_color, 1)
         cv2.circle(frame, (cx, cy), 5, draw_color, -1)
 
         # Add to current colors set (for snapshot logic)
@@ -257,21 +234,28 @@ while True:
 
         # --- VISUAL ALERT (Replaces Laser) ---
         # Display "LASER ON" text on screen
-        cv2.putText(frame, "LASER ON", (width - 350, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 255), 3)
+        cv2.putText(frame, "LASER ON", (width - 350, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         
     # ---------------------------------------------------------
     #  UDP COMMUNICATION (MOVED OUTSIDE THE IF STATEMENT)
     # ---------------------------------------------------------
     # This now runs every single frame, sending 1 OR 0.
-    if best_detection:
-        udp_message = b'\x01' # Byte 1 (ON)
-    else:
-        udp_message = b'\x00' # Byte 0 (OFF)
+    current_time = time.time()
+    
+    if (current_time - last_udp_send_time) >= UDP_INTERVAL:
+        
+        if best_detection:
+            udp_message = b'\x01'
+        else:
+            udp_message = b'\x00'
 
-    try:
-        sock.sendto(udp_message, (RPI_IP, RPI_PORT))
-    except Exception as e:
-        print(f"UDP Error: {e}")
+        try:
+            sock.sendto(udp_message, (RPI_IP, RPI_PORT))
+            # Update the last time we sent the message
+            last_udp_send_time = current_time 
+        except Exception as e:
+            print(f"UDP Error: {e}")
+
 
     # --- SNAPSHOT LOGIC ---
     # Check which colors are NEW in the band (present now, but weren't previously)
@@ -286,30 +270,12 @@ while True:
     active_colors = current_frame_colors
     # ----------------------
 
-    # 1. Calculate how long the processing took
-    processing_time = time.time() - loop_start_time
-    
-    # 2. Calculate how much we need to sleep to meet the 0.1s target
-    sleep_needed = processing_period - processing_time
-    
-    # 3. If we were too fast, sleep the difference
-    if sleep_needed > 0:
-        time.sleep(sleep_needed)
-
-    # 4. Calculate Actual FPS (including the sleep)
-    # We compare the current time to the time at the start of the *previous* loop
-    current_time = time.time()
-    actual_loop_time = current_time - prev_loop_time
-    prev_loop_time = current_time # Reset for next loop
-    
-    if actual_loop_time > 0:
-        fps = 1.0 / actual_loop_time
-    else:
-        fps = 0
-
-    # Display FPS
-    fps_label = f"ACTUAL FPS: {fps:.2f}"
-    cv2.putText(frame, fps_label, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    # --- FPS Display (For Debugging) ---
+    # This measures how fast the video is actually rendering
+    new_frame_time = time.time()
+    fps = 1 / (new_frame_time - prev_frame_time)
+    prev_frame_time = new_frame_time
+    cv2.putText(frame, f"FPS: {int(fps)}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     
     cv2.imshow("Colour Detection", frame)
 
