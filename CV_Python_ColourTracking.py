@@ -11,20 +11,20 @@ import socket
 
 # --- NETWORK CONFIGURATION (UDP) ---
 
-RPI_IP = "172.26.236.13"  # <----------------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
-RPI_PORT = 50002 # -----------------------------------------------------------------------The port the Pi will listen on
+RPI_IP = "172.26.236.13"  # <-----------------------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_PORT = 50002 # -----------------------------------------------------------------------------------------------------The port the Pi will listen on
 # Initialize UDP Socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # Define a processing rate
-TARGET_FPS = 10
+TARGET_FPS = 10 #------------------------------------------------------------------------------------------------------------------Set target FPS here
 processing_period = 1.0 / TARGET_FPS
 
 # --- CONFIGURATION ---
 # Define the size of the center detection box (in pixels)
 scan_band_height = 300 
 snapshot_folder = "Snapshots" # Define the folder name
-enable_snapshots = False  # --------------------------------------------------------------------------Set True to save images, False to disable saving
+enable_snapshots = False  # ---------------------------------------------------------------------------Set True to save images, False to disable saving
 
 # Dictionary structure: "Color Name": { "ranges": [ (lower, upper) ], "draw_color": (B, G, R) }
 color_definitions = {
@@ -136,7 +136,7 @@ cap = cv2.VideoCapture(1) #-----------------------------------------------------
 cap.set(3,1920)
 cap.set(4,1080)
 # Set the fps
-cap.set(5, 10)
+cap.set(5, 10)#----------------------------------------------------------------------------------------------------------------------set camera fps here
 
 # --- SNAPSHOT CONFIGURATION ---
 # Create the directory if it doesn't exist (safety check)
