@@ -111,7 +111,7 @@ cv2.moveWindow("Colour Detection", 0, 0)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(2) #-----------------------------------------------------------------------------------------Select camera here
+cap = cv2.VideoCapture(1) #-----------------------------------------------------------------------------------------Select camera here
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,640)
