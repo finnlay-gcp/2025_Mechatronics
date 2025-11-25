@@ -11,7 +11,7 @@ import socket
 
 # --- NETWORK CONFIGURATION (UDP) ---
 
-RPI_IP = "172.26.236.13"  # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_IP = "138.38.226.136"  # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
 RPI_PORT = 50002 # -------------------------------------------------------------------------------------The port the Pi will listen on
 # Initialize UDP Socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -165,17 +165,15 @@ while True:
     band_left_x = cx - band_half_width
     band_right_x = cx + band_half_width
 
-   # --- DRAWING THE LIMIT LINES ---
-    # Horizontal Lines
-    cv2.line(frame, (0, band_top_y), (width, band_top_y), (200, 200, 200), 2)
-    cv2.line(frame, (0, band_bottom_y), (width, band_bottom_y), (200, 200, 200), 2)
-    
-    # Vertical Lines (New)
-    cv2.line(frame, (band_left_x, 0), (band_left_x, height), (200, 200, 200), 2)
-    cv2.line(frame, (band_right_x, 0), (band_right_x, height), (200, 200, 200), 2)
-    
+    # --- 2. CREATE ZONE MASK (THE FIX) ---
+    # Create a completely black image the size of the frame
+    zone_mask = np.zeros((height, width), dtype="uint8")
+    # Draw a solid white rectangle where the scan band is
+    cv2.rectangle(zone_mask, (band_left_x, band_top_y), (band_right_x, band_bottom_y), 255, -1)
+
+    # --- DRAWING THE LIMIT LINES (Visuals) ---
+    cv2.rectangle(frame, (band_left_x, band_top_y), (band_right_x, band_bottom_y), (200, 200, 200), 2)
     cv2.putText(frame, "SCAN ZONE", (band_left_x + 5, band_top_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-    # -------------------------------------------
 
     # This variable will hold the data for the single largest blob found so far
     # Format: {'area': 0, 'rect': (x,y,w,h), 'color': 'Name', 'params': params}
@@ -191,6 +189,10 @@ while True:
             temp_mask = cv2.inRange(hsv, lower, upper)
             final_mask = cv2.bitwise_or(final_mask, temp_mask)
 
+        # 2. APPLY THE ZONE MASK (THE FIX)
+        # This deletes anything found outside the white box in zone_mask
+        final_mask = cv2.bitwise_and(final_mask, zone_mask)
+        # 3. Clean up noise
         final_mask = cv2.erode(final_mask, None, iterations=2)
         final_mask = cv2.dilate(final_mask, None, iterations=2)
 
@@ -206,20 +208,15 @@ while True:
                 obj_cy = y + (h // 2)
                 obj_cx = x + (w // 2)
 
-                # Check if it is inside the band
-                in_horizontal = band_top_y < obj_cy < band_bottom_y
-                in_vertical = band_left_x < obj_cx < band_right_x
-
-                if in_horizontal and in_vertical:
-                    
-                    if best_detection is None or area > best_detection['area']:
-                        best_detection = {
-                            'area': area,
-                            'rect': (x, y, w, h),
-                            'color_name': color_name,
-                            'draw_color': params["draw_color"],
-                            'center': (obj_cx, obj_cy)
-                        }
+                # We determine the absolute best detection across all colors
+                if best_detection is None or area > best_detection['area']:
+                    best_detection = {
+                        'area': area,
+                        'rect': (x, y, w, h),
+                        'color_name': color_name,
+                        'draw_color': params["draw_color"],
+                        'center': (obj_cx, obj_cy)
+                    }
     # ---------------------------------------------------------
     #  DRAWING & ACTIONS (HAPPENS ONCE PER FRAME)
     # ---------------------------------------------------------
