@@ -10,13 +10,15 @@ import os
 import socket
 
 # --- NETWORK CONFIGURATION (UDP) ---
+
 RPI_IP = "172.26.236.13"  # <----------------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
 RPI_PORT = 50002 # -----------------------------------------------------------------------The port the Pi will listen on
 # Initialize UDP Socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # Define a processing rate
-processing_period = 0.25
+TARGET_FPS = 10
+processing_period = 1.0 / TARGET_FPS
 
 # --- CONFIGURATION ---
 # Define the size of the center detection box (in pixels)
@@ -133,10 +135,8 @@ cap = cv2.VideoCapture(1) #-----------------------------------------------------
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,1920)
 cap.set(4,1080)
-cap.set(cv2.CAP_PROP_FPS, 30) # Attempt to set FPS to 30
-# Set the starting time
-start_time = time.time()
-fps = 0
+# Set the fps
+cap.set(5, 10)
 
 # --- SNAPSHOT CONFIGURATION ---
 # Create the directory if it doesn't exist (safety check)
@@ -155,9 +155,11 @@ def take_snapshot(frame, color_name):
 
 # Set to track which colors are CURRENTLY inside the band across frames
 active_colors = set() 
+prev_loop_time = time.time()
 # -------------------------
 
 while True:
+    loop_start_time = time.time()  # Record the start time of this loop iteration
     # Capture frame-by-frame
     ret, frame = cap.read()
     if not ret:
@@ -284,21 +286,31 @@ while True:
     active_colors = current_frame_colors
     # ----------------------
 
-    # FPS Calculation & Display
-    # We calculate real FPS now since we removed the sleep
-    elapsed_time = time.time() - start_time
-    if elapsed_time > 0:
-        fps = 1 / elapsed_time
-    start_time = time.time()
-
-    # Add the frame rate to the images
-    fps_label = f"CAMERA FPS: {fps:.2f}"
-    proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
-
-    cv2.putText(frame, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    cv2.putText(frame, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    # 1. Calculate how long the processing took
+    processing_time = time.time() - loop_start_time
     
-    # Display the resulting frame
+    # 2. Calculate how much we need to sleep to meet the 0.1s target
+    sleep_needed = processing_period - processing_time
+    
+    # 3. If we were too fast, sleep the difference
+    if sleep_needed > 0:
+        time.sleep(sleep_needed)
+
+    # 4. Calculate Actual FPS (including the sleep)
+    # We compare the current time to the time at the start of the *previous* loop
+    current_time = time.time()
+    actual_loop_time = current_time - prev_loop_time
+    prev_loop_time = current_time # Reset for next loop
+    
+    if actual_loop_time > 0:
+        fps = 1.0 / actual_loop_time
+    else:
+        fps = 0
+
+    # Display FPS
+    fps_label = f"ACTUAL FPS: {fps:.2f}"
+    cv2.putText(frame, fps_label, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    
     cv2.imshow("Colour Detection", frame)
 
     # Break the loop on 'q' key press (use longer wait time to allow window responsiveness)
