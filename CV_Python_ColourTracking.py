@@ -18,7 +18,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # --- CONFIGURATION ---
 # Define the size of the center detection box (in pixels)
-scan_band_height = 80 #----------------------------------------------------------------------------------------------------band height
+scan_band_height = 60 #----------------------------------------------------------------------------------------------------band height
 scan_band_width = 300 #-----------------------------------------------------------------------------------------------------band width
 snapshot_folder = "Snapshots" # Define the folder name
 enable_snapshots = False  # ----------------------------------------------------------Set True to save images, False to disable saving
@@ -45,7 +45,7 @@ color_definitions = {
             # Green Range (35-90)
             # Starts after the Yellow gap (20-35) 
             # Ends before the Cyan gap (90-100)
-            (np.array([35, S_MIN, V_MIN]), np.array([90, 255, 255])) 
+            (np.array([30, 25, 25]), np.array([95, 255, 255])) 
         ],
         "draw_color": (0, 255, 0)
     },
@@ -54,7 +54,7 @@ color_definitions = {
             # Blue Range (100-150)
             # Starts after the Cyan gap (90-100)
             # Ends before the Purple/Magenta gap (150-160)
-            (np.array([100, S_MIN, V_MIN]), np.array([150, 255, 255])) 
+            (np.array([100, 50, 50]), np.array([150, 255, 255])) 
         ],
         "draw_color": (255, 0, 0)
     },
@@ -111,7 +111,7 @@ cv2.moveWindow("Colour Detection", 0, 0)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(1) #-----------------------------------------------------------------------------------------Select camera here
+cap = cv2.VideoCapture(0) #-----------------------------------------------------------------------------------------Select camera here
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,640)
