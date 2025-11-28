@@ -115,7 +115,7 @@ def take_snapshot(frame, colour_name):
     cv2.imwrite(filename, frame)
     print(f"*** SNAPSHOT SAVED: {filename} ***")
 
-# --- INITIALIZATION ---
+# --- INITIALISATION ---
 active_colours = set() 
 prev_frame_time = time.time()
 
@@ -146,7 +146,7 @@ while True:
     band_left_x = cx - band_half_width
     band_right_x = cx + band_half_width
 
-    # --- CREATE TZONE MASK ---
+    # --- CREATE ZONE MASK ---
     # Create a completely black image the size of the frame
     zone_mask = np.zeros((height, width), dtype="uint8")
     # Draw a solid white rectangle where the scan band is
