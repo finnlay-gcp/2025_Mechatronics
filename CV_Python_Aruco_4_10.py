@@ -1,16 +1,8 @@
-# This script is an entry point to the Aruco marker detection and pose estimation.
-# It uses the camera calibration values to estimate the pose of the markers.
-# The script will display the original image and the image with the detected markers and their pose.
-# It is using the OpenCV library 4.10+ which has the latest Aruco functions
-
-# This is the vision library OpenCV
 import cv2
-# This is the Aruco library from OpenCV
 import cv2.aruco as aruco
-# This is a library for mathematical functions for python (used later)
 import numpy as np
-# This is a library to get access to time-related functionalities. We will use this to ensure a steady processing rate
 import time 
+import math
 
 # Load the camera calibration values
 camera_calibration = np.load('workdir/Calibration.npz') #from Jupyter notebook
@@ -35,25 +27,25 @@ else:
     specified_ids = None
 
 # Define a processing rate
-processing_period = 0.25 #--------------------------------------------------------------------------------------------------select processing rate here
+processing_period = 0.1 #--------------------------------------------------------------------------------------------------select processing rate here
 
 # Create OpenCV named windows
 window_width = 768 #keep 1920:1080 ratio
 window_height = 432 #keep 1920:1080 ratio
 print("Creating windows...")
-window_names = ["Frame", "Gray", "Canny"]
+window_names = ["Frame"] #, "Gray", "Canny"
 for name in window_names:
     cv2.namedWindow(name, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(name, window_width, window_height)
 
 # Position the windows next to each other
-cv2.moveWindow("Gray", 0, 0)
+#cv2.moveWindow("Gray", 0, 0)
 cv2.moveWindow("Frame", 780, 0)
-cv2.moveWindow("Canny", 0, 510)
+#cv2.moveWindow("Canny", 0, 510)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(0) #----------------------------------------------------------------------------------------------------------select camera here
+cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------------------------------select camera here
 
 # Set the width and heigth of the camera to 1920x1080
 cap.set(3,1920) #------------------------------------------------------------------------------------------------------------set camera resolution here
@@ -63,22 +55,27 @@ cap.set(4,1080)
 start_time = time.time()
 fps = 0
 
+# Initialise print timer
+last_print_time = time.time()
+
 while True:
+    loop_start_timestamp = time.time()
+    
     # Capture frame-by-frame
     ret, frame = cap.read()
     if not ret:
         print("Can't receive frame (stream end?). Exiting ...")
         break
-
+    
     # Convert frame to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
+    
     # Example of additional image processing: Gaussian Blur
     gauss = cv2.GaussianBlur(gray, (5, 5), 0)
-
+    
     # Example of additional image processing: Canny Edge Detection
     canny = cv2.Canny(gauss, 75, 100)#change the thresholds if needed
-
+    
     # Detect markers
     corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
 
@@ -100,7 +97,7 @@ while True:
         # Draw detected markers
         gray = aruco.drawDetectedMarkers(gray, corners, ids)
         frame = aruco.drawDetectedMarkers(frame, corners, ids)
-
+        
         # Estimate pose of each marker
         rvecs, tvecs,_objPoints = aruco.estimatePoseSingleMarkers(corners, marker_size, CM, dist_coef)
 
@@ -118,7 +115,6 @@ while True:
                 topmost_ind = ind
         
         # Process only the topmost marker
-        print("\n--- TOPMOST MARKER DETECTED ---")
         marker_id = ids.flatten()[topmost_ind]
         rvec = rvecs[topmost_ind]
         tvec = tvecs[topmost_ind]
@@ -127,13 +123,39 @@ while True:
         tvec_flat = tvec.flatten()
         rvec_flat = rvec.flatten()
         
-        print(f"MARKER ID: {marker_id}")
-        print(f"    Index: {topmost_ind}")
-        #print(f"    Translation Vector (tvec): {tvec_flat}")
-        #print(f"        X: {tvec_flat[0]:.2f} mm, Y: {tvec_flat[1]:.2f} mm, Z: {tvec_flat[2]:.2f} mm")
-        print(f"    Rotation Vector (rvec): {rvec_flat}")
-        print(f"        Rx: {rvec_flat[0]:.4f}, Ry: {rvec_flat[1]:.4f}, Rz: {rvec_flat[2]:.4f}")
-        
+        current_time = time.time()
+        if current_time - last_print_time >= 1.0:
+            
+            # Convert Rodrigues vector (rvec) to Rotation Matrix
+            rotation_matrix, _ = cv2.Rodrigues(rvec)
+            
+            # Calculate Euler Angles (Pitch, Yaw, Roll) from Matrix
+            sy = math.sqrt(rotation_matrix[0, 0] * rotation_matrix[0, 0] + rotation_matrix[1, 0] * rotation_matrix[1, 0])
+            singular = sy < 1e-6
+            
+            if not singular:
+                x = math.atan2(rotation_matrix[2, 1], rotation_matrix[2, 2])
+                y = math.atan2(-rotation_matrix[2, 0], sy)
+                z = math.atan2(rotation_matrix[1, 0], rotation_matrix[0, 0])
+            else:
+                x = math.atan2(-rotation_matrix[1, 2], rotation_matrix[1, 1])
+                y = math.atan2(-rotation_matrix[2, 0], sy)
+                z = 0
+            
+            # Convert radians to degrees
+            pitch = np.degrees(x)
+            yaw = np.degrees(y)
+            roll = np.degrees(z)
+            
+            print("\n--- TOPMOST MARKER DETECTED ---")
+            print(f"MARKER ID: {marker_id}")
+            print(f"    Index: {topmost_ind}")
+            #print(f"    Translation Vector (tvec): {tvec_flat}")
+            #print(f"        X: {tvec_flat[0]:.2f} mm, Y: {tvec_flat[1]:.2f} mm, Z: {tvec_flat[2]:.2f} mm")
+            #print(f"    Rotation Vector (rvec): {rvec_flat}")
+            print( f"       ROTATION (deg): Roll={roll:.1f}") #Pitch={pitch:.1f}, Yaw={yaw:.1f}, 
+            
+            last_print_time = current_time
         # Draw axis only for the topmost marker (check if endpoints are in frame)
         axis_length = 50  # Use smaller axis length to stay in frame
         
@@ -154,30 +176,34 @@ while True:
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
     proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
-
+    
     images_to_label = [gray, frame, canny]
-
+    
     for img in images_to_label:
         cv2.putText(img, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         cv2.putText(img, proc_label, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
+    
     # Display the resulting frame
-    show_list = [("Gray", gray), ("Frame", frame), ("Canny", canny)]
+    show_list = [("Frame", frame)] #, ("Gray", gray), ("Canny", canny)
     for name, img in show_list:
         cv2.imshow(name, img)
-
+    
     # Break the loop on 'q' key press (use longer wait time to allow window responsiveness)
     key = cv2.waitKey(1) & 0xFF
     if key == ord('q'):
         print("\nQuitting...")
         break
-
-    # Ensure a steady processing rate
-    elapsed_time = time.time() - start_time
-    fps = 1 / elapsed_time
-    if elapsed_time < processing_period:
-        time.sleep(processing_period - elapsed_time)
-    start_time = time.time()
+    
+    # Calculate how long the processing took
+    processing_time = time.time() - loop_start_timestamp
+    
+    # Calculate FPS based on actual processing speed
+    if processing_time > 0:
+        fps = 1.0 / processing_time
+    
+    # Sleep only if we have time left in our 0.1s window
+    if processing_time < processing_period:
+        time.sleep(processing_period - processing_time)
 
 # When everything is done, release the capture and close windows
 cap.release()
