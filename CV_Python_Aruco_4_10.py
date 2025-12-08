@@ -23,7 +23,7 @@ aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
 parameters = aruco.DetectorParameters()
 
 # Input specific ArUco IDs to detect (leave empty to detect all)
-aruco_ids_input = input("Enter specific ArUco IDs to detect (comma-separated, e.g., 0,5,10). Leave empty to detect all: ").strip()
+aruco_ids_input = input("Enter specific ArUco IDs to detect (comma-separated, e.g., 0,1,2). Leave empty to detect all: ").strip()
 if aruco_ids_input:
     try:
         specified_ids = set(int(id.strip()) for id in aruco_ids_input.split(','))
@@ -35,9 +35,9 @@ else:
     specified_ids = None
 
 # Define a processing rate
-processing_period = 0.25
+processing_period = 0.25 #--------------------------------------------------------------------------------------------------select processing rate here
 
-# Create three OpenCV named windows
+# Create OpenCV named windows
 window_width = 768 #keep 1920:1080 ratio
 window_height = 432 #keep 1920:1080 ratio
 print("Creating windows...")
@@ -53,10 +53,10 @@ cv2.moveWindow("Canny", 0, 510)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(2) #----------------------------------------------------------------------------------select camera here
+cap = cv2.VideoCapture(0) #----------------------------------------------------------------------------------------------------------select camera here
 
 # Set the width and heigth of the camera to 1920x1080
-cap.set(3,1920)
+cap.set(3,1920) #------------------------------------------------------------------------------------------------------------set camera resolution here
 cap.set(4,1080)
 
 # Set the starting time
@@ -129,8 +129,8 @@ while True:
         
         print(f"MARKER ID: {marker_id}")
         print(f"    Index: {topmost_ind}")
-        print(f"    Translation Vector (tvec): {tvec_flat}")
-        print(f"        X: {tvec_flat[0]:.2f} mm, Y: {tvec_flat[1]:.2f} mm, Z: {tvec_flat[2]:.2f} mm")
+        #print(f"    Translation Vector (tvec): {tvec_flat}")
+        #print(f"        X: {tvec_flat[0]:.2f} mm, Y: {tvec_flat[1]:.2f} mm, Z: {tvec_flat[2]:.2f} mm")
         print(f"    Rotation Vector (rvec): {rvec_flat}")
         print(f"        Rx: {rvec_flat[0]:.4f}, Ry: {rvec_flat[1]:.4f}, Rz: {rvec_flat[2]:.4f}")
         
