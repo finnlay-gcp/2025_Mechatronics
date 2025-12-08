@@ -100,33 +100,21 @@ while True:
         
         # Estimate pose of each marker
         rvecs, tvecs,_objPoints = aruco.estimatePoseSingleMarkers(corners, marker_size, CM, dist_coef)
-
-        # Find the topmost marker (smallest average Y coordinate)
-        topmost_ind = 0
-        topmost_y = float('inf')
-        
-        for ind, marker_id in enumerate(ids.flatten()):
-            # Calculate average Y position of marker corners
-            marker_corners = corners[ind][0]
-            avg_y = marker_corners[:, 1].mean()
-            
-            if avg_y < topmost_y:
-                topmost_y = avg_y
-                topmost_ind = ind
-        
-        # Process only the topmost marker
-        marker_id = ids.flatten()[topmost_ind]
-        rvec = rvecs[topmost_ind]
-        tvec = tvecs[topmost_ind]
-        
-        # Export pose information for topmost marker
-        tvec_flat = tvec.flatten()
-        rvec_flat = rvec.flatten()
         
         current_time = time.time()
-        if current_time - last_print_time >= 1.0:
-            
-            # Convert Rodrigues vector (rvec) to Rotation Matrix
+        should_print = (current_time - last_print_time) >= 1.0
+        
+        if should_print:
+            print(f"\n--- DETECTED {len(ids)} MARKER(S) ---")
+        
+        # Loop through ALL detected markers
+        for i in range(len(ids)):
+            marker_id = ids[i][0]
+            rvec = rvecs[i]
+            tvec = tvecs[i]
+
+            # --- POSE CALCULATION ---
+            # Convert Rodrigues vector to Rotation Matrix
             rotation_matrix, _ = cv2.Rodrigues(rvec)
             
             # Calculate Euler Angles (Pitch, Yaw, Roll) from Matrix
@@ -143,50 +131,44 @@ while True:
                 z = 0
             
             # Convert radians to degrees
+            roll = np.degrees(z)
             pitch = np.degrees(x)
             yaw = np.degrees(y)
-            roll = np.degrees(z)
             
-            print("\n--- TOPMOST MARKER DETECTED ---")
-            print(f"MARKER ID: {marker_id}")
-            print(f"    Index: {topmost_ind}")
-            #print(f"    Translation Vector (tvec): {tvec_flat}")
-            #print(f"        X: {tvec_flat[0]:.2f} mm, Y: {tvec_flat[1]:.2f} mm, Z: {tvec_flat[2]:.2f} mm")
-            #print(f"    Rotation Vector (rvec): {rvec_flat}")
-            print( f"       ROTATION (deg): Roll={roll:.1f}") #Pitch={pitch:.1f}, Yaw={yaw:.1f}, 
+            # Print info for this specific marker
+            if should_print:
+                print(f"ID: {marker_id}")
+                #print(f"    Translation Vector (tvec): {tvec_flat}")
+                #print(f"        X: {tvec_flat[0]:.2f} mm, Y: {tvec_flat[1]:.2f} mm, Z: {tvec_flat[2]:.2f} mm")
+                #print(f"    Rotation Vector (rvec): {rvec_flat}")
+                print( f"       ROTATION (deg): Roll={roll:.1f}") #Pitch={pitch:.1f}, Yaw={yaw:.1f}, 
             
+            # Draw axis only for the topmost marker (check if endpoints are in frame)
+            axis_length = 50  # Use smaller axis length to stay in frame
+        
+            # Project axis endpoint to check if it's within bounds
+            axis_point, _ = cv2.projectPoints(np.float32([[0, 0, axis_length]]), rvec, tvec, CM, dist_coef)
+            axis_x = axis_point[0, 0, 0]
+            axis_y = axis_point[0, 0, 1]
+        
+            # Only draw if projected endpoint is within frame boundaries
+            if 0 <= axis_x < frame.shape[1] and 0 <= axis_y < frame.shape[0]:
+                cv2.drawFrameAxes(gray, CM, dist_coef, rvec, tvec, axis_length)
+                cv2.drawFrameAxes(frame, CM, dist_coef, rvec, tvec, axis_length)
+        
+        # Update print timer after looping through all markers
+        if should_print:
             last_print_time = current_time
-        # Draw axis only for the topmost marker (check if endpoints are in frame)
-        axis_length = 50  # Use smaller axis length to stay in frame
-        
-        # Project axis endpoint to check if it's within bounds
-        axis_point, _ = cv2.projectPoints(np.float32([[0, 0, axis_length]]), rvec, tvec, CM, dist_coef)
-        axis_x = axis_point[0, 0, 0]
-        axis_y = axis_point[0, 0, 1]
-        
-        # Only draw if projected endpoint is within frame boundaries
-        if 0 <= axis_x < frame.shape[1] and 0 <= axis_y < frame.shape[0]:
-            gray = cv2.drawFrameAxes(gray, CM, dist_coef, rvec, tvec, axis_length)
-            frame = cv2.drawFrameAxes(frame, CM, dist_coef, rvec, tvec, axis_length)
-        
-        # Add text label to topmost marker on frame
-        cv2.putText(frame, f"TOPMOST: ID {marker_id}", (int(topmost_y), 50), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 0), 2)
-    
+
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
     proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
     
-    images_to_label = [gray, frame, canny]
-    
-    for img in images_to_label:
-        cv2.putText(img, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(img, proc_label, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(frame, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(frame, proc_label, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     
     # Display the resulting frame
-    show_list = [("Frame", frame)] #, ("Gray", gray), ("Canny", canny)
-    for name, img in show_list:
-        cv2.imshow(name, img)
+    cv2.imshow("Frame", frame)
     
     # Break the loop on 'q' key press (use longer wait time to allow window responsiveness)
     key = cv2.waitKey(1) & 0xFF
