@@ -2,6 +2,15 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 import time 
+import socket
+
+# --- NETWORK CONFIGURATION (UDP) ---
+RPI_IP = "138.38.226.136"  # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_PORT = 50002 # -------------------------------------------------------------------------------------The port the Pi will listen on
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+# --- UDP TIMING CONFIGURATION ---
+last_udp_send_time = 0
+UDP_INTERVAL = 0.1
 
 # Load the camera calibration values
 camera_calibration = np.load('workdir/Calibration.npz') #from Jupyter notebook
@@ -9,7 +18,7 @@ CM=camera_calibration['CM'] #camera matrix
 dist_coef=camera_calibration['dist_coef'] #distortion coefficients from the camera
 
 # Define the ArUco dictionary and parameters
-marker_size = 98 # SIZE OF THE MARKER IN mm (HAVE TO MEASURE IF PRINTED)
+marker_size = 98 # -------------------------------------------------------------------------------SIZE OF THE MARKER IN mm (HAVE TO MEASURE IF PRINTED)
 aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
 parameters = aruco.DetectorParameters()
 
@@ -26,11 +35,12 @@ else:
     specified_ids = None
 
 # Define a processing rate
-processing_period = 0.1 #--------------------------------------------------------------------------------------------------select processing rate here
+processing_period = 0.05 #--------------------------------------------------------------------------------------------------select processing rate here
 
 # Create OpenCV named windows
-window_width = 1920 #keep 1920:1080 ratio
-window_height = 1080 #keep 1920:1080 ratio
+window_scale = 0.75 #--------------------------------------------------------------------------------------------------------scale the window size here
+window_width = int(1920 * window_scale)
+window_height = int(1080 * window_scale)
 print("Creating windows...")
 cv2.namedWindow("Frame", cv2.WINDOW_NORMAL)
 cv2.resizeWindow("Frame", window_width, window_height)
@@ -74,7 +84,7 @@ while True:
         else:
             corners = [corners[i] for i in filtered_indices]
             ids = ids[filtered_indices]
-        
+    
     # If markers are detected (after filtering)
     if ids is not None:
         # Draw detected markers
@@ -150,18 +160,27 @@ while True:
                 # It is crucial this vector points FROM idx1 TO idx2
                 line_vec = tvecs[idx2][0] - tvecs[idx1][0]
                 
-                # 4. Calculate Angle (Dot Product)
+                # 4. Calculate Signed Angle (-180 to +180)
                 unit_orient = orientation_vec / np.linalg.norm(orientation_vec)
                 unit_line = line_vec / np.linalg.norm(line_vec)
                 
-                dot_prod = np.dot(unit_orient, unit_line)
-                dot_prod = np.clip(dot_prod, -1.0, 1.0) # Handle floating point noise
+                # Get the Z-axis (Normal vector) of the source marker to define "Up"
+                normal_vec = rmat[:, 2] 
                 
-                angle_deg = np.degrees(np.arccos(dot_prod))
+                # Calculate components
+                dot_prod = np.dot(unit_orient, unit_line)       # Cosine component
+                cross_prod = np.cross(unit_orient, unit_line)   # Vector perpendicular to turn
+                
+                # Project the cross product onto the normal vector to get the Sine component
+                sine_component = np.dot(cross_prod, normal_vec)
+                
+                # Use arctan2 to calculate the full signed angle
+                angle_rad = np.arctan2(sine_component, dot_prod)
+                angle_deg = np.degrees(angle_rad)
                 
                 # --- VISUAL DEBUGGING ---
                 # Draw the "Orientation" vector on screen in pink so you can see what is being compared.
-                # If the pink line overlaps the Yellow line, Angle is 0.
+                # If the pink line overlaps the yellow line, Angle is 0.
                 projected_orientation_end = tvecs[idx1][0] + (orientation_vec * (min_dist * 0.5)) # Scale line to half distance
                 
                 # Project this 3D point to 2D image
@@ -179,11 +198,37 @@ while True:
                 
                 # Print to console
                 current_time = time.time()
-                if current_time - last_print_time >= 0.5:
+                if current_time - last_print_time >= 1: #--------------------------------------------------------------------------------print speed
                     id1_num = ids[idx1][0]
                     id2_num = ids[idx2][0]
-                    print(f"ID {id1_num}->{id2_num} | Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} deg")
+                    print(f"ID {id1_num}->{id2_num} | Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} deg | Turn: {'LEFT' if angle_deg > 7 else 'RIGHT' if angle_deg < -7 else 'STRAIGHT'}")
                     last_print_time = current_time
+    
+    # --- ALERTS ---
+    if angle_deg > 7:
+        cv2.putText(frame, "TURN LEFT", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
+    elif angle_deg < -7:
+        cv2.putText(frame, "TURN RIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
+    
+    # --- UDP COMMUNICATION ---
+    # Runs every single frame, sending 1 or 0
+    current_time = time.time()
+    
+    if (current_time - last_udp_send_time) >= UDP_INTERVAL:
+        
+        if angle_deg > 10:
+            udp_message = b'\x01'
+        elif angle_deg < -10:
+            udp_message = b'\x02'
+        else:
+            udp_message = b'\x00'
+            
+        try:
+            sock.sendto(udp_message, (RPI_IP, RPI_PORT))
+            last_udp_send_time = current_time 
+        except Exception as e:
+            print(f"UDP Error: {e}")
+    
     
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
