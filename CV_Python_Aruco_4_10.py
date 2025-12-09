@@ -5,7 +5,7 @@ import time
 import socket
 
 # --- NETWORK CONFIGURATION (UDP) ---
-RPI_IP = "138.38.226.136"  # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_IP = "172.26.236.13"  # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
 RPI_PORT = 50002 # -------------------------------------------------------------------------------------The port the Pi will listen on
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # --- UDP TIMING CONFIGURATION ---
@@ -196,18 +196,20 @@ while True:
                 cv2.putText(frame, info_text, tuple(midpoint), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
                 
+                angle_tolerance = 7 #-------------------------------------------------------------------------------------------tolerance for straight
+                
                 # Print to console
                 current_time = time.time()
                 if current_time - last_print_time >= 1: #--------------------------------------------------------------------------------print speed
                     id1_num = ids[idx1][0]
                     id2_num = ids[idx2][0]
-                    print(f"ID {id1_num}->{id2_num} | Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} deg | Turn: {'LEFT' if angle_deg > 7 else 'RIGHT' if angle_deg < -7 else 'STRAIGHT'}")
+                    print(f"ID {id1_num}->{id2_num} | Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} deg | Turn: {'LEFT' if angle_deg > angle_tolerance else 'RIGHT' if angle_deg < -angle_tolerance else 'STRAIGHT'}")
                     last_print_time = current_time
     
     # --- ALERTS ---
-    if angle_deg > 7:
+    if angle_deg > angle_tolerance:
         cv2.putText(frame, "TURN LEFT", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
-    elif angle_deg < -7:
+    elif angle_deg < -angle_tolerance:
         cv2.putText(frame, "TURN RIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
     
     # --- UDP COMMUNICATION ---
@@ -216,19 +218,18 @@ while True:
     
     if (current_time - last_udp_send_time) >= UDP_INTERVAL:
         
-        if angle_deg > 10:
+        if angle_deg > angle_tolerance:
             udp_message = b'\x01'
-        elif angle_deg < -10:
+        elif angle_deg < -angle_tolerance:
             udp_message = b'\x02'
         else:
             udp_message = b'\x00'
-            
+        
         try:
             sock.sendto(udp_message, (RPI_IP, RPI_PORT))
             last_udp_send_time = current_time 
         except Exception as e:
             print(f"UDP Error: {e}")
-    
     
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
