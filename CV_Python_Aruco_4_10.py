@@ -29,12 +29,12 @@ else:
 processing_period = 0.1 #--------------------------------------------------------------------------------------------------select processing rate here
 
 # Create OpenCV named windows
-window_width = 768 #keep 1920:1080 ratio
-window_height = 432 #keep 1920:1080 ratio
+window_width = 1920 #keep 1920:1080 ratio
+window_height = 1080 #keep 1920:1080 ratio
 print("Creating windows...")
 cv2.namedWindow("Frame", cv2.WINDOW_NORMAL)
 cv2.resizeWindow("Frame", window_width, window_height)
-cv2.moveWindow("Frame", 780, 0)
+cv2.moveWindow("Frame", 0, 0)
 print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
@@ -63,15 +63,9 @@ while True:
     # Convert frame to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Example of additional image processing: Gaussian Blur
-    gauss = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Example of additional image processing: Canny Edge Detection
-    canny = cv2.Canny(gauss, 75, 100)#change the thresholds if needed
-    
     # Detect markers
     corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
-
+    
     # If markers are detected
     if ids is not None and specified_ids is not None:
         filtered_indices = [i for i, marker_id in enumerate(ids.flatten()) if marker_id in specified_ids]
@@ -104,13 +98,13 @@ while True:
             
             if 0 <= axis_x < frame.shape[1] and 0 <= axis_y < frame.shape[0]:
                 cv2.drawFrameAxes(frame, CM, dist_coef, rvec, tvec, axis_length)
-
+        
         # --- DISTANCE CALCULATION ---
         # We need at least 2 markers to calculate a distance
         if len(ids) >= 2:
             min_dist = float('inf')
             closest_pair = None # Will store indices (i, j)
-
+            
             # Compare every marker with every other marker
             for i in range(len(ids)):
                 for j in range(i + 1, len(ids)):
@@ -129,30 +123,68 @@ while True:
             if closest_pair:
                 idx1, idx2 = closest_pair
                 
+                # --- SORT IDS FOR STABILITY ---
+                # Ensure we always measure FROM the lower ID TO the higher ID
+                # This prevents the angle from flipping if detection order changes
+                if ids[idx1][0] > ids[idx2][0]:
+                    idx1, idx2 = idx2, idx1
+                
                 # Get the center points of the markers on the 2D image for drawing the line
-                # corners shape is (N, 1, 4, 2)
                 c1 = np.mean(corners[idx1][0], axis=0).astype(int)
                 c2 = np.mean(corners[idx2][0], axis=0).astype(int)
                 
-                # Draw a yellow line between the closest pair
+                # Draw a yellow line between the closest pair (The "Target Line")
                 cv2.line(frame, tuple(c1), tuple(c2), (0, 255, 255), 2)
                 
-                # Calculate midpoint on screen to place the text
+                # --- ACCURATE ANGLE CALCULATION ---
+                # 1. Get Rotation Matrix for the "Source" Marker (idx1)
+                # This matrix converts local marker coordinates (X, Y, Z) to camera coordinates
+                rmat, _ = cv2.Rodrigues(rvecs[idx1][0])
+                
+                # 2. Extract the Orientation Vector
+                # By default, ArUco 'Up' is the Y-axis (Green). 
+                # Column 0 = X (Right), Column 1 = Y (Up/Top), Column 2 = Z (Forward/Normal)
+                orientation_vec = rmat[:, 1] 
+                
+                # 3. Create the Line Vector (From Source -> Target)
+                # It is crucial this vector points FROM idx1 TO idx2
+                line_vec = tvecs[idx2][0] - tvecs[idx1][0]
+                
+                # 4. Calculate Angle (Dot Product)
+                unit_orient = orientation_vec / np.linalg.norm(orientation_vec)
+                unit_line = line_vec / np.linalg.norm(line_vec)
+                
+                dot_prod = np.dot(unit_orient, unit_line)
+                dot_prod = np.clip(dot_prod, -1.0, 1.0) # Handle floating point noise
+                
+                angle_deg = np.degrees(np.arccos(dot_prod))
+                
+                # --- VISUAL DEBUGGING ---
+                # Draw the "Orientation" vector on screen in pink so you can see what is being compared.
+                # If the pink line overlaps the Yellow line, Angle is 0.
+                projected_orientation_end = tvecs[idx1][0] + (orientation_vec * (min_dist * 0.5)) # Scale line to half distance
+                
+                # Project this 3D point to 2D image
+                p_end, _ = cv2.projectPoints(projected_orientation_end.reshape(1, 1, 3), np.zeros((3,1)), np.zeros((3,1)), CM, dist_coef)
+                p_end_2d = tuple(p_end[0][0].astype(int))
+                
+                # Draw pink "Heading" Line
+                cv2.line(frame, tuple(c1), p_end_2d, (255, 105, 180), 3) 
+                
+                # Display text
                 midpoint = ((c1[0] + c2[0]) // 2, (c1[1] + c2[1]) // 2)
+                info_text = f"Dist: {min_dist:.0f}mm | Ang: {angle_deg:.0f}"
+                cv2.putText(frame, info_text, tuple(midpoint), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
                 
-                # Display distance text
-                dist_text = f"{min_dist:.1f} mm"
-                cv2.putText(frame, dist_text, tuple(midpoint), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
-                
-                # Print to console periodically
+                # Print to console
                 current_time = time.time()
-                if current_time - last_print_time >= 1.0:
+                if current_time - last_print_time >= 0.5:
                     id1_num = ids[idx1][0]
                     id2_num = ids[idx2][0]
-                    print(f"Closest Pair: ID {id1_num} & ID {id2_num} | Distance: {min_dist:.2f} mm")
+                    print(f"ID {id1_num}->{id2_num} | Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} deg")
                     last_print_time = current_time
-
+    
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
     proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
