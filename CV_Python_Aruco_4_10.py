@@ -205,31 +205,33 @@ while True:
                     id2_num = ids[idx2][0]
                     print(f"ID {id1_num}->{id2_num} | Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} deg | Turn: {'LEFT' if angle_deg > angle_tolerance else 'RIGHT' if angle_deg < -angle_tolerance else 'STRAIGHT'}")
                     last_print_time = current_time
-    
-    # --- ALERTS ---
-    if angle_deg > angle_tolerance:
-        cv2.putText(frame, "TURN LEFT", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
-    elif angle_deg < -angle_tolerance:
-        cv2.putText(frame, "TURN RIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
-    
-    # --- UDP COMMUNICATION ---
-    # Runs every single frame, sending 1 or 0
-    current_time = time.time()
-    
-    if (current_time - last_udp_send_time) >= UDP_INTERVAL:
-        
-        if angle_deg > angle_tolerance:
-            udp_message = b'\x01'
-        elif angle_deg < -angle_tolerance:
-            udp_message = b'\x02'
-        else:
-            udp_message = b'\x00'
-        
-        try:
-            sock.sendto(udp_message, (RPI_IP, RPI_PORT))
-            last_udp_send_time = current_time 
-        except Exception as e:
-            print(f"UDP Error: {e}")
+            
+            # --- ALERTS ---
+            if angle_deg > angle_tolerance:
+                cv2.putText(frame, "TURN LEFT", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
+            elif angle_deg < -angle_tolerance:
+                cv2.putText(frame, "TURN RIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
+            else:
+                cv2.putText(frame, "STRAIGHT AHEAD",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 255, 0), 5)
+            
+            # --- UDP COMMUNICATION ---
+            # Runs every single frame, sending 1 or 0
+            current_time = time.time()
+            
+            if (current_time - last_udp_send_time) >= UDP_INTERVAL:
+                
+                if angle_deg > angle_tolerance:
+                    udp_message = b'\x01'
+                elif angle_deg < -angle_tolerance:
+                    udp_message = b'\x02'
+                else:
+                    udp_message = b'\x00'
+                
+                try:
+                    sock.sendto(udp_message, (RPI_IP, RPI_PORT))
+                    last_udp_send_time = current_time 
+                except Exception as e:
+                    print(f"UDP Error: {e}")
     
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
