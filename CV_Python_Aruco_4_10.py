@@ -3,9 +3,10 @@ import cv2.aruco as aruco
 import numpy as np
 import time 
 import socket
+import struct
 
 # --- NETWORK CONFIGURATION (UDP) ---
-RPI_IP = "169.254.1.105" # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_IP = "127.0.0.1" # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
 RPI_PORT = 50002 # -------------------------------------------------------------------------------------The port the Pi will listen on
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # --- UDP TIMING CONFIGURATION ---
@@ -35,7 +36,7 @@ else:
     specified_ids = None
 
 # Define a processing rate
-processing_period = 0.05 #--------------------------------------------------------------------------------------------------select processing rate here
+processing_period = 0.1 #--------------------------------------------------------------------------------------------------select processing rate here
 
 # Create OpenCV named windows
 window_scale = 0.75 #--------------------------------------------------------------------------------------------------------scale the window size here
@@ -219,11 +220,11 @@ while True:
                 cv2.putText(frame, info_text, tuple(midpoint), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
                 
-                angle_tolerance = 7 #-------------------------------------------------------------------------------------------tolerance for straight
+                angle_tolerance = 7 #--------------------------------------------------------------------------------------------------tolerance for straight
                 
                 # Print to console
                 current_time = time.time()
-                if current_time - last_print_time >= 1: #--------------------------------------------------------------------------------print speed
+                if current_time - last_print_time >= 1: #-----------------------------------------------------------------------------------------print speed
                     id1_num = ids[idx1][0]
                     id2_num = ids[idx2][0]
                     print(f"ID {id1_num}->{id2_num} | Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} deg | Turn: {'LEFT' if angle_deg > angle_tolerance else 'RIGHT' if angle_deg < -angle_tolerance else 'STRAIGHT'}")
@@ -238,19 +239,15 @@ while True:
                 cv2.putText(frame, "STRAIGHT AHEAD",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 255, 0), 5)
             
             # --- UDP COMMUNICATION ---
-            # Runs every single frame, sending 2 or 1 or 0
+            # Runs every single frame, sending integer values of angle_deg
             current_time = time.time()
             
             if (current_time - last_udp_send_time) >= UDP_INTERVAL:
-                
-                if angle_deg > angle_tolerance:
-                    udp_message = b'\x01'
-                elif angle_deg < -angle_tolerance:
-                    udp_message = b'\x02'
-                else:
-                    udp_message = b'\x00'
-                
                 try:
+                    angle_rounded = round(angle_deg)
+                    dist_rounded = round(min_dist)
+                    udp_message = struct.pack('dd', angle_rounded, dist_rounded)
+                    
                     sock.sendto(udp_message, (RPI_IP, RPI_PORT))
                     last_udp_send_time = current_time 
                 except Exception as e:
