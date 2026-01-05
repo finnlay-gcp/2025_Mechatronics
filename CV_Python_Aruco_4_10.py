@@ -77,13 +77,36 @@ while True:
     corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
     
     # If markers are detected
-    if ids is not None and specified_ids is not None:
-        filtered_indices = [i for i, marker_id in enumerate(ids.flatten()) if marker_id in specified_ids]
-        if not filtered_indices:
-            ids = None
+    if ids is not None:
+        # Dictionary to store the best candidate for each ID: {marker_id: (index, perimeter)}
+        best_markers = {}
+
+        for i, marker_id in enumerate(ids.flatten()):
+            # 1. Filter by specified IDs (if user set any)
+            if specified_ids is not None and marker_id not in specified_ids:
+                continue
+
+            # 2. Calculate perimeter (proxy for size)
+            perimeter = cv2.arcLength(corners[i], True)
+
+            # 3. Keep only the largest marker for this ID
+            if marker_id not in best_markers:
+                best_markers[marker_id] = (i, perimeter)
+            else:
+                # If this new detection is larger than the stored one, replace it
+                if perimeter > best_markers[marker_id][1]:
+                    best_markers[marker_id] = (i, perimeter)
+
+        # Reconstruct the lists using only the best indices
+        if best_markers:
+            # Extract the original indices of the largest markers
+            valid_indices = [val[0] for val in best_markers.values()]
+            
+            # Rebuild corners and ids arrays
+            corners = tuple([corners[i] for i in valid_indices])
+            ids = np.array([ids[i] for i in valid_indices])
         else:
-            corners = [corners[i] for i in filtered_indices]
-            ids = ids[filtered_indices]
+            ids = None
     
     # If markers are detected (after filtering)
     if ids is not None:
