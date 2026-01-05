@@ -5,7 +5,7 @@ import time
 import socket
 
 # --- NETWORK CONFIGURATION (UDP) ---
-RPI_IP = "172.26.236.13"  # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_IP = "169.254.1.105" # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
 RPI_PORT = 50002 # -------------------------------------------------------------------------------------The port the Pi will listen on
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # --- UDP TIMING CONFIGURATION ---
@@ -238,7 +238,7 @@ while True:
                 cv2.putText(frame, "STRAIGHT AHEAD",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 255, 0), 5)
             
             # --- UDP COMMUNICATION ---
-            # Runs every single frame, sending 1 or 0
+            # Runs every single frame, sending 2 or 1 or 0
             current_time = time.time()
             
             if (current_time - last_udp_send_time) >= UDP_INTERVAL:
