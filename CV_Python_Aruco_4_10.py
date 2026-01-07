@@ -6,7 +6,7 @@ import socket
 import struct
 
 # --- NETWORK CONFIGURATION (UDP) ---
-RPI_IP = "127.0.0.1" # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_IP = "138.38.228.74" # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
 RPI_PORT = 50002 # -------------------------------------------------------------------------------------The port the Pi will listen on
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # --- UDP TIMING CONFIGURATION ---
@@ -81,15 +81,15 @@ while True:
     if ids is not None:
         # Dictionary to store the best candidate for each ID: {marker_id: (index, perimeter)}
         best_markers = {}
-
+        
         for i, marker_id in enumerate(ids.flatten()):
             # 1. Filter by specified IDs (if user set any)
             if specified_ids is not None and marker_id not in specified_ids:
                 continue
-
+            
             # 2. Calculate perimeter (proxy for size)
             perimeter = cv2.arcLength(corners[i], True)
-
+            
             # 3. Keep only the largest marker for this ID
             if marker_id not in best_markers:
                 best_markers[marker_id] = (i, perimeter)
@@ -97,7 +97,7 @@ while True:
                 # If this new detection is larger than the stored one, replace it
                 if perimeter > best_markers[marker_id][1]:
                     best_markers[marker_id] = (i, perimeter)
-
+        
         # Reconstruct the lists using only the best indices
         if best_markers:
             # Extract the original indices of the largest markers
@@ -246,7 +246,7 @@ while True:
                 try:
                     angle_rounded = round(angle_deg)
                     dist_rounded = round(min_dist)
-                    udp_message = struct.pack('dd', angle_rounded, dist_rounded)
+                    udp_message = struct.pack('<dd', angle_rounded, dist_rounded)
                     
                     sock.sendto(udp_message, (RPI_IP, RPI_PORT))
                     last_udp_send_time = current_time 
