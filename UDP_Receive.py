@@ -13,14 +13,14 @@ import sys      # This library will give us some information about your system
 
 # First we need to set the IP and PORT we are going to listen to
 # This is the localhost IP address (this machine)
-UDP_IP = "192.168.0.100"
- 
+UDP_IP = "172.26.236.13"
+
 # This is the LOCAL port I am expecting data (on the sending machine this is the REMOTE port)
-UDP_PORT = 50001
+UDP_PORT = 50002
 
 # Create the socket for the UDP communication
 sock = socket.socket(socket.AF_INET,    # Family of addresses, in this case IP (Internet Protocol) family 
-                     socket.SOCK_DGRAM) # What protocol to use, in this case UDP (datagram)
+socket.SOCK_DGRAM) # What protocol to use, in this case UDP (datagram)
 
 # Bind to the socket and wait for data on this port
 sock.bind((UDP_IP, UDP_PORT))

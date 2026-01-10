@@ -11,7 +11,7 @@ RPI_PORT = 50002 # -------------------------------------------------------------
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # --- UDP TIMING CONFIGURATION ---
 last_udp_send_time = 0
-UDP_INTERVAL = 0.1
+UDP_INTERVAL = 0.25 # ------------------------------------------------------------------------------------------------udp send interval
 
 # Load the camera calibration values
 camera_calibration = np.load('workdir/Calibration.npz') #from Jupyter notebook
@@ -221,6 +221,7 @@ while True:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
                 
                 angle_tolerance = 7 #--------------------------------------------------------------------------------------------------tolerance for straight
+                dist_tolerance = 200 #--------------------------------------------------------------------------------------------------tolerance for distance
                 
                 # Print to console
                 current_time = time.time()
@@ -238,15 +239,22 @@ while True:
             else:
                 cv2.putText(frame, "STRAIGHT AHEAD",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 255, 0), 5)
             
-            # --- UDP COMMUNICATION ---
-            # Runs every single frame, sending integer values of angle_deg
+            # --- UDP COMMUNICATION ------------------------------------------------------------------------------------------------
+            # Runs every single frame, sending integer values of angle_deg and min_dist
             current_time = time.time()
             
             if (current_time - last_udp_send_time) >= UDP_INTERVAL:
                 try:
                     angle_rounded = round(angle_deg)
                     dist_rounded = round(min_dist)
-                    udp_message = struct.pack('<dd', angle_rounded, dist_rounded)
+                    turn_or_move = 0
+                    if abs(angle_rounded) <= angle_tolerance:
+                        turn_or_move = 1
+                    if dist_rounded <= dist_tolerance:
+                        turn_or_move = 2
+                    
+                    udp_message = struct.pack('<ddd', angle_rounded, dist_rounded, turn_or_move)
+                    # if rotation is complete, send 1, if distance is complete, send
                     
                     sock.sendto(udp_message, (RPI_IP, RPI_PORT))
                     last_udp_send_time = current_time 
