@@ -5,50 +5,25 @@ import time
 import socket
 import struct
 
-# --- NETWORK CONFIGURATION ---
-
-# 1. SENDING CONFIGURATION (Target: Raspberry Pi)
-RPI_IP = "138.38.228.74"     # <--- CHANGE THIS to the Raspberry Pi's IP address
-RPI_PORT = 50002             # The port the Pi will listen on
-sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-# 2. RECEIVING CONFIGURATION (Host: Your PC)
-UDP_RECEIVE_IP = "172.26.118.176"  # <--- CHANGE THIS to Your PC's WiFi IP
-UDP_RECEIVE_PORT = 50003           # Port for PC to receive responses
-sock_receive = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-# Setup Receive Socket options
-try:
-    sock_receive.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    sock_receive.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock_receive.bind((UDP_RECEIVE_IP, UDP_RECEIVE_PORT))
-    sock_receive.setblocking(0) # <--- CRITICAL: Set to Non-Blocking so video doesn't freeze
-    print(f"Listening for UDP responses on {UDP_RECEIVE_IP}:{UDP_RECEIVE_PORT}")
-except Exception as e:
-    print(f"Error binding receive socket: {e}")
-
+# --- NETWORK CONFIGURATION (UDP) ---
+RPI_IP = "138.38.228.74" # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
+RPI_PORT = 50002 # -------------------------------------------------------------------------------------The port the Pi will listen on
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # --- UDP TIMING CONFIGURATION ---
 last_udp_send_time = 0
-UDP_INTERVAL = 0.25 
-stop_signal_received = False # Flag to track if Pi said "Done"
+UDP_INTERVAL = 0.25 # ------------------------------------------------------------------------------------------------udp send interval
 
 # Load the camera calibration values
-try:
-    camera_calibration = np.load('workdir/Calibration.npz') # Ensure this path is correct
-    CM = camera_calibration['CM']
-    dist_coef = camera_calibration['dist_coef']
-except Exception as e:
-    print(f"Warning: Could not load calibration file: {e}")
-    # Fallback to dummy values if file missing (prevents crash, but pose will be wrong)
-    CM = np.eye(3)
-    dist_coef = np.zeros((5,1))
+camera_calibration = np.load('workdir/Calibration.npz') #from Jupyter notebook
+CM=camera_calibration['CM'] #camera matrix
+dist_coef=camera_calibration['dist_coef'] #distortion coefficients from the camera
 
 # Define the ArUco dictionary and parameters
-marker_size = 98 
+marker_size = 98 # -------------------------------------------------------------------------------SIZE OF THE MARKER IN mm (HAVE TO MEASURE IF PRINTED)
 aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
 parameters = aruco.DetectorParameters()
 
-# Input specific ArUco IDs to detect
+# Input specific ArUco IDs to detect (leave empty to detect all)
 aruco_ids_input = input("Enter specific ArUco IDs to detect (comma-separated, e.g., 0,1,2). Leave empty to detect all: ").strip()
 if aruco_ids_input:
     try:
@@ -61,216 +36,248 @@ else:
     specified_ids = None
 
 # Define a processing rate
-processing_period = 0.1 
+processing_period = 0.1 #--------------------------------------------------------------------------------------------------select processing rate here
 
 # Create OpenCV named windows
-window_scale = 0.75 
+window_scale = 0.75 #--------------------------------------------------------------------------------------------------------scale the window size here
 window_width = int(1920 * window_scale)
 window_height = int(1080 * window_scale)
+print("Creating windows...")
 cv2.namedWindow("Frame", cv2.WINDOW_NORMAL)
 cv2.resizeWindow("Frame", window_width, window_height)
 cv2.moveWindow("Frame", 0, 0)
+print("Windows created. Starting camera feed...\n")
 
 # Start capturing video
-cap = cv2.VideoCapture(1) 
-cap.set(3, 1920) 
-cap.set(4, 1080)
+cap = cv2.VideoCapture(1) #----------------------------------------------------------------------------------------------------------select camera here
 
-# Timers
+# Set the width and heigth of the camera to 1920x1080
+cap.set(3,1920) #------------------------------------------------------------------------------------------------------------set camera resolution here
+cap.set(4,1080)
+
+# Set the starting time
 start_time = time.time()
 fps = 0
-last_print_time = time.time()
 
-print("System Ready. Starting Loop...")
+# Initialise print timer
+last_print_time = time.time()
 
 while True:
     loop_start_timestamp = time.time()
     
-    # 1. CHECK FOR INCOMING UDP MESSAGES (Non-blocking)
-    try:
-        data, addr = sock_receive.recvfrom(1024)
-        if len(data) >= 8:
-            received_value = struct.unpack('<d', data[:8])[0]
-            if received_value == 1.0:
-                print("\n[UDP RX] Received 'Task Complete' signal (1.0) from Pi!")
-                stop_signal_received = True
-            elif received_value != 0:
-                print(f"\n[UDP RX] Received value: {received_value}")
-    except BlockingIOError:
-        # No data received, continue normally
-        pass
-    except Exception as e:
-        print(f"UDP Receive Error: {e}")
-
-    # 2. CAPTURE & PROCESS FRAME
+    # Capture frame-by-frame
     ret, frame = cap.read()
     if not ret:
         print("Can't receive frame (stream end?). Exiting ...")
         break
     
+    # Convert frame to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Detect markers
     corners, ids, rejectedImgPoints = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
     
-    # Variables to hold navigation data (Default: Stop)
-    angle_to_send = 0.0
-    dist_to_send = 0.0
-    tom_to_send = 0.0
-    valid_navigation_data = False
-
     # If markers are detected
     if ids is not None:
-        # --- Marker Filtering Logic (Best Marker per ID) ---
+        # Dictionary to store the best candidate for each ID: {marker_id: (index, perimeter)}
         best_markers = {}
+        
         for i, marker_id in enumerate(ids.flatten()):
+            # 1. Filter by specified IDs (if user set any)
             if specified_ids is not None and marker_id not in specified_ids:
                 continue
+            
+            # 2. Calculate perimeter (proxy for size)
             perimeter = cv2.arcLength(corners[i], True)
-            if marker_id not in best_markers or perimeter > best_markers[marker_id][1]:
+            
+            # 3. Keep only the largest marker for this ID
+            if marker_id not in best_markers:
                 best_markers[marker_id] = (i, perimeter)
+            else:
+                # If this new detection is larger than the stored one, replace it
+                if perimeter > best_markers[marker_id][1]:
+                    best_markers[marker_id] = (i, perimeter)
         
+        # Reconstruct the lists using only the best indices
         if best_markers:
+            # Extract the original indices of the largest markers
             valid_indices = [val[0] for val in best_markers.values()]
+            
+            # Rebuild corners and ids arrays
             corners = tuple([corners[i] for i in valid_indices])
             ids = np.array([ids[i] for i in valid_indices])
         else:
             ids = None
-
-    # If we still have valid markers after filtering
+    
+    # If markers are detected (after filtering)
     if ids is not None:
-        # If we lost tracking previously, assume new task, reset stop signal
-        # (Optional logic: remove if you want manual reset only)
-        # stop_signal_received = False 
-
-        aruco.drawDetectedMarkers(frame, corners, ids)
-        rvecs, tvecs, _ = aruco.estimatePoseSingleMarkers(corners, marker_size, CM, dist_coef)
+        # Draw detected markers
+        gray = aruco.drawDetectedMarkers(gray, corners, ids)
+        frame = aruco.drawDetectedMarkers(frame, corners, ids)
         
-        # Draw axes
+        # Estimate pose of each marker
+        rvecs, tvecs,_objPoints = aruco.estimatePoseSingleMarkers(corners, marker_size, CM, dist_coef)
+        
+        # Loop through ALL detected markers to draw axes
         for i in range(len(ids)):
-            cv2.drawFrameAxes(frame, CM, dist_coef, rvecs[i], tvecs[i], 50)
+            rvec = rvecs[i]
+            tvec = tvecs[i]
+            
+            # Visualization: Draw Axis
+            axis_length = 50
+            # Project axis point to ensure it is in frame before drawing
+            axis_point, _ = cv2.projectPoints(np.float32([[0, 0, axis_length]]), rvec, tvec, CM, dist_coef)
+            axis_x = axis_point[0, 0, 0]
+            axis_y = axis_point[0, 0, 1]
+            
+            if 0 <= axis_x < frame.shape[1] and 0 <= axis_y < frame.shape[0]:
+                cv2.drawFrameAxes(frame, CM, dist_coef, rvec, tvec, axis_length)
         
-        # --- DISTANCE & ANGLE CALCULATION ---
+        # --- DISTANCE CALCULATION ---
+        # We need at least 2 markers to calculate a distance
         if len(ids) >= 2:
             min_dist = float('inf')
-            closest_pair = None
+            closest_pair = None # Will store indices (i, j)
             
-            # Find closest pair
+            # Compare every marker with every other marker
             for i in range(len(ids)):
                 for j in range(i + 1, len(ids)):
-                    dist = np.linalg.norm(tvecs[i][0] - tvecs[j][0])
+                    # Extract 3D position vectors (x, y, z)
+                    pos1 = tvecs[i][0]
+                    pos2 = tvecs[j][0]
+                    
+                    # Calculate Euclidean distance in 3D space
+                    dist = np.linalg.norm(pos1 - pos2)
+                    
                     if dist < min_dist:
                         min_dist = dist
                         closest_pair = (i, j)
             
+            # If we found a pair (which we always should if len >= 2)
             if closest_pair:
                 idx1, idx2 = closest_pair
-                # Sort IDs for consistency (Low -> High)
+                
+                # --- SORT IDS FOR STABILITY ---
+                # Ensure we always measure FROM the lower ID TO the higher ID
+                # This prevents the angle from flipping if detection order changes
                 if ids[idx1][0] > ids[idx2][0]:
                     idx1, idx2 = idx2, idx1
-
-                # Visuals
+                
+                # Get the center points of the markers on the 2D image for drawing the line
                 c1 = np.mean(corners[idx1][0], axis=0).astype(int)
                 c2 = np.mean(corners[idx2][0], axis=0).astype(int)
+                
+                # Draw a yellow line between the closest pair (The "Target Line")
                 cv2.line(frame, tuple(c1), tuple(c2), (0, 255, 255), 2)
                 
-                # Math: Calculate Angle
+                # --- ACCURATE ANGLE CALCULATION ---
+                # 1. Get Rotation Matrix for the "Source" Marker (idx1)
+                # This matrix converts local marker coordinates (X, Y, Z) to camera coordinates
                 rmat, _ = cv2.Rodrigues(rvecs[idx1][0])
-                orientation_vec = rmat[:, 1] # Y-axis
+                
+                # 2. Extract the Orientation Vector
+                # By default, ArUco 'Up' is the Y-axis (Green). 
+                # Column 0 = X (Right), Column 1 = Y (Up/Top), Column 2 = Z (Forward/Normal)
+                orientation_vec = rmat[:, 1] 
+                
+                # 3. Create the Line Vector (From Source -> Target)
+                # It is crucial this vector points FROM idx1 TO idx2
                 line_vec = tvecs[idx2][0] - tvecs[idx1][0]
                 
+                # 4. Calculate Signed Angle (-180 to +180)
                 unit_orient = orientation_vec / np.linalg.norm(orientation_vec)
                 unit_line = line_vec / np.linalg.norm(line_vec)
-                normal_vec = rmat[:, 2] # Z-axis
                 
-                dot_prod = np.dot(unit_orient, unit_line)
-                cross_prod = np.cross(unit_orient, unit_line)
+                # Get the Z-axis (Normal vector) of the source marker to define "Up"
+                normal_vec = rmat[:, 2] 
+                
+                # Calculate components
+                dot_prod = np.dot(unit_orient, unit_line)       # Cosine component
+                cross_prod = np.cross(unit_orient, unit_line)   # Vector perpendicular to turn
+                
+                # Project the cross product onto the normal vector to get the Sine component
                 sine_component = np.dot(cross_prod, normal_vec)
                 
+                # Use arctan2 to calculate the full signed angle
                 angle_rad = np.arctan2(sine_component, dot_prod)
                 angle_deg = np.degrees(angle_rad)
                 
-                # Update data to send
-                angle_to_send = angle_deg
-                dist_to_send = min_dist
-                valid_navigation_data = True
+                # --- VISUAL DEBUGGING ---
+                # Draw the "Orientation" vector on screen in pink so you can see what is being compared.
+                # If the pink line overlaps the yellow line, Angle is 0.
+                projected_orientation_end = tvecs[idx1][0] + (orientation_vec * (min_dist * 0.5)) # Scale line to half distance
                 
-                # Tolerances
-                angle_tolerance = 7
-                dist_tolerance = 200
-
-                # Determine TOM (Turn Or Move)
-                # 0 = Stop/Wait, 1 = Turn, 2 = Move
-                if abs(angle_deg) <= angle_tolerance:
-                    tom_to_send = 1.0 # Aligned, ready to rotate? (Or logic from script 1 was 1=turn?)
-                    # Script 1 logic: if angle small -> turn_or_move = 1. 
-                    # Actually usually: if angle BIG -> Turn (1). If angle SMALL -> Move (2).
-                    # Let's stick to Script 1 exact logic:
-                    # "if abs(angle) <= tolerance: tom=1" (This implies 1 is Move? logic seems inverted in original comments but code ruled)
-                    # Let's use strict logic:
-                    tom_to_send = 1.0 # "Aligned" state
+                # Project this 3D point to 2D image
+                p_end, _ = cv2.projectPoints(projected_orientation_end.reshape(1, 1, 3), np.zeros((3,1)), np.zeros((3,1)), CM, dist_coef)
+                p_end_2d = tuple(p_end[0][0].astype(int))
                 
-                if min_dist <= dist_tolerance:
-                    tom_to_send = 2.0 # "Close enough" state
-
-                # Display Info
+                # Draw pink "Heading" Line
+                cv2.line(frame, tuple(c1), p_end_2d, (255, 105, 180), 3) 
+                
+                # Display text
                 midpoint = ((c1[0] + c2[0]) // 2, (c1[1] + c2[1]) // 2)
-                cv2.putText(frame, f"Dist: {min_dist:.0f} | Ang: {angle_deg:.0f}", tuple(midpoint), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-
-                # Console Print
-                if time.time() - last_print_time >= 1:
-                    status = "DONE/STOP" if stop_signal_received else "ACTIVE"
-                    print(f"[{status}] Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} | TOM: {tom_to_send}")
-                    last_print_time = time.time()
-    
-    else:
-        # No markers found - Reset logic? 
-        # If you want the robot to reset when you hide markers, uncomment below:
-        if stop_signal_received:
-             print("Tracking lost - Resetting Stop Signal")
-             stop_signal_received = False
-        pass
-
-    # 3. UDP SENDING LOGIC
-    current_time = time.time()
-    if (current_time - last_udp_send_time) >= UDP_INTERVAL:
-        try:
-            # Logic: If we received "1.0" from Pi, we FORCE send 0,0,0 (Stop)
-            # If we haven't received "1.0", we send the calculated camera values
+                info_text = f"Dist: {min_dist:.0f}mm | Ang: {angle_deg:.0f}"
+                cv2.putText(frame, info_text, tuple(midpoint), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
+                
+                angle_tolerance = 7 #--------------------------------------------------------------------------------------------------tolerance for straight
+                dist_tolerance = 200 #--------------------------------------------------------------------------------------------------tolerance for distance
+                
+                # Print to console
+                current_time = time.time()
+                if current_time - last_print_time >= 1: #-----------------------------------------------------------------------------------------print speed
+                    id1_num = ids[idx1][0]
+                    id2_num = ids[idx2][0]
+                    print(f"ID {id1_num}->{id2_num} | Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} deg | Turn: {'LEFT' if angle_deg > angle_tolerance else 'RIGHT' if angle_deg < -angle_tolerance else 'STRAIGHT'}")
+                    last_print_time = current_time
             
-            if stop_signal_received:
-                # Send STOP command
-                msg = struct.pack('<ddd', 0.0, 0.0, 0.0)
-                # Visual Feedback on screen
-                cv2.putText(frame, "TASK COMPLETE", (50, 500), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-            elif valid_navigation_data:
-                # Send NAVIGATION command
-                angle_rnd = round(angle_to_send)
-                dist_rnd = round(dist_to_send)
-                tom_rnd = round(tom_to_send)
-                msg = struct.pack('<ddd', angle_rnd, dist_rnd, tom_rnd)
+            # --- ALERTS ---
+            if angle_deg > angle_tolerance:
+                cv2.putText(frame, "TURN LEFT", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
+            elif angle_deg < -angle_tolerance:
+                cv2.putText(frame, "TURN RIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
             else:
-                # No markers seen, send 0,0,0 or Keep Alive?
-                # Usually safer to send 0s if nothing is seen
-                msg = struct.pack('<ddd', 0.0, 0.0, 0.0)
-
-            sock_send.sendto(msg, (RPI_IP, RPI_PORT))
-            last_udp_send_time = current_time
+                cv2.putText(frame, "STRAIGHT AHEAD",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 255, 0), 5)
             
-        except Exception as e:
-            print(f"UDP Send Error: {e}")
-
-    # 4. GUI UPDATE
-    cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            # --- UDP COMMUNICATION ------------------------------------------------------------------------------------------------
+            # Runs every single frame, sending integer values of angle_deg and min_dist
+            current_time = time.time()
+            
+            if (current_time - last_udp_send_time) >= UDP_INTERVAL:
+                try:
+                    angle_rounded = round(angle_deg)
+                    dist_rounded = round(min_dist)
+                    turn_or_move = 0
+                    if abs(angle_rounded) <= angle_tolerance:
+                        turn_or_move = 1
+                    if dist_rounded <= dist_tolerance:
+                        turn_or_move = 2
+                    
+                    udp_message = struct.pack('<ddd', angle_rounded, dist_rounded, turn_or_move)
+                    # if rotation is complete, send 1, if distance is complete, send
+                    
+                    sock.sendto(udp_message, (RPI_IP, RPI_PORT))
+                    last_udp_send_time = current_time 
+                except Exception as e:
+                    print(f"UDP Error: {e}")
+    
+    # Add the frame rate to the images
+    fps_label = f"CAMERA FPS: {fps:.2f}"
+    proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
+    
+    cv2.putText(frame, fps_label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(frame, proc_label, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    
+    # Display the resulting frame
     cv2.imshow("Frame", frame)
     
+    # Break the loop on 'q' key press (use longer wait time to allow window responsiveness)
     key = cv2.waitKey(1) & 0xFF
     if key == ord('q'):
+        print("\nQuitting...")
         break
-    elif key == ord('r'): # Manual Reset option
-        stop_signal_received = False
-        print("Manual Reset: sending commands again.")
-
-    # FPS Calculation
+    
+    # FPS Calculation and Sleep
     processing_time = time.time() - loop_start_timestamp
     if processing_time > 0:
         fps = 1.0 / processing_time
@@ -278,8 +285,6 @@ while True:
     if processing_time < processing_period:
         time.sleep(processing_period - processing_time)
 
-# Cleanup
+# When everything is done, release the capture and close windows
 cap.release()
 cv2.destroyAllWindows()
-sock_send.close()
-sock_receive.close()
