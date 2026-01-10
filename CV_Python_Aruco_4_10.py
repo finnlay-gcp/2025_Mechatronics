@@ -4,11 +4,29 @@ import numpy as np
 import time 
 import socket
 import struct
+import errno
 
-# --- NETWORK CONFIGURATION (UDP) ---
-RPI_IP = "138.38.228.74" # <-------------------------------------------------------------CHANGE THIS to the Raspberry Pi's IP address
-RPI_PORT = 50002 # -------------------------------------------------------------------------------------The port the Pi will listen on
+# Constants - Receive Configuration
+UDP_RECEIVE_IP = "172.26.236.13"  # Your PC's WiFi IP
+UDP_RECEIVE_PORT = 50003  # Different port for PC to receive responses
+BUFFER_SIZE = 1024
+
+# Constants - Send Configuration
+UDP_SEND_IP = "138.38.228.74"  # Raspberry Pi IP
+UDP_SEND_PORT = 50002  # Pi is listening on this port
+
+# --- CHANGED: SETUP RECEIVE SOCKET ONCE HERE ---
+sock_receive = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock_receive.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    sock_receive.bind((UDP_RECEIVE_IP, UDP_RECEIVE_PORT))
+    sock_receive.setblocking(False) # <--- CRITICAL FIX: Don't wait for data
+    print(f"Listening for UDP on {UDP_RECEIVE_IP}:{UDP_RECEIVE_PORT}")
+except Exception as e:
+    print(f"Socket Bind Error: {e}")
+
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
 # --- UDP TIMING CONFIGURATION ---
 last_udp_send_time = 0
 UDP_INTERVAL = 0.25 # ------------------------------------------------------------------------------------------------udp send interval
@@ -61,6 +79,9 @@ fps = 0
 
 # Initialise print timer
 last_print_time = time.time()
+
+# Flag to stop sending after completion
+task_completed = False
 
 while True:
     loop_start_timestamp = time.time()
@@ -239,27 +260,55 @@ while True:
             else:
                 cv2.putText(frame, "STRAIGHT AHEAD",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 255, 0), 5)
             
-            # --- UDP COMMUNICATION ------------------------------------------------------------------------------------------------
+            # =================== UDP COMMUNICATION ===============================================================
             # Runs every single frame, sending integer values of angle_deg and min_dist
             current_time = time.time()
+            angle_rounded = round(angle_deg)
+            dist_rounded = round(min_dist)
+            turn_or_move = 0
             
-            if (current_time - last_udp_send_time) >= UDP_INTERVAL:
+            # ==================== SEND FUNCTION ====================
+            def send_udp(angle_rounded, dist_rounded, turn_or_move):
+                udp_message = struct.pack('<ddd', float(angle_rounded), float(dist_rounded), float(turn_or_move))
+                sock_send_temp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock_send_temp.sendto(udp_message, (UDP_SEND_IP, UDP_SEND_PORT))
+                sock_send_temp.close() # Clean up
+            
+            # ==================== RECEIVE FUNCTION ====================
+            if (current_time - last_udp_send_time) >= UDP_INTERVAL and not task_completed:
                 try:
-                    angle_rounded = round(angle_deg)
-                    dist_rounded = round(min_dist)
-                    turn_or_move = 0
                     if abs(angle_rounded) <= angle_tolerance:
                         turn_or_move = 1
                     if dist_rounded <= dist_tolerance:
                         turn_or_move = 2
                     
-                    udp_message = struct.pack('<ddd', angle_rounded, dist_rounded, turn_or_move)
-                    # if rotation is complete, send 1, if distance is complete, send
+                    # 1. Send the data
+                    send_udp(angle_rounded, dist_rounded, turn_or_move)
+                    last_udp_send_time = current_time
                     
-                    sock.sendto(udp_message, (RPI_IP, RPI_PORT))
-                    last_udp_send_time = current_time 
+                    # 2. Check for response (NON-BLOCKING)
+                    # We check ONLY ONCE. If data is there, great. If not, we move on.
+                    try:
+                        data, addr = sock_receive.recvfrom(BUFFER_SIZE)
+                        
+                        if len(data) >= 8:
+                            received_value = struct.unpack('<d', data[:8])[0]
+                            
+                            if received_value == 1.0:
+                                print("Task complete! Sending stop signal [0, 0, 0]...")
+                                send_udp(0.0, 0.0, 0.0)
+                                task_completed = True # Stop sending future commands
+                            
+                            if received_value != 0:
+                                print(f"Received value: {received_value}")
+                    
+                    except socket.error as e:
+                        # This catches the "No data available" error and lets the loop continue safely
+                        if e.errno != errno.EAGAIN and e.errno != errno.EWOULDBLOCK and e.errno != 10035:
+                            print(f"Socket Error: {e}")
+                
                 except Exception as e:
-                    print(f"UDP Error: {e}")
+                    print(f"UDP General Error: {e}")
     
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
