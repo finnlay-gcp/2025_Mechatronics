@@ -86,11 +86,11 @@ task_completed = False
 # This controls which marker index we are currently targeting
 # 1 = Second lowest (Target 1), 2 = Third lowest (Target 2), etc.
 current_target_rank = 1 
-SEQUENCE_SWITCH_DIST = 300 # ------------------------------------------------------------------------Distance in mm to trigger switch to next marker
+SEQUENCE_SWITCH_DIST = 175 # ------------------------------------------------------------------------Distance in mm to trigger switch to next marker
 switching_cooldown = 0     # Timer to prevent double-switching
 
-
 while True:
+    target_id = None
     loop_start_timestamp = time.time()
     
     # Capture frame-by-frame
@@ -216,7 +216,7 @@ while True:
                 info_text = f"SEQ: {current_target_rank} | ID {source_id}->{target_id} | Dist: {min_dist:.0f}"
                 midpoint = ((c1[0] + c2[0]) // 2, (c1[1] + c2[1]) // 2)
                 cv2.putText(frame, info_text, tuple(midpoint), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-
+                
                 # Tolerance checks
                 angle_tolerance = 7 #------------------------------------------------------------------------------------------------angle tolerance in degrees
                 dist_tolerance = 200 #--------------------------------------------------------------------------------------------------distance tolerance in mm
@@ -227,7 +227,7 @@ while True:
                     cv2.putText(frame, "TURN RIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
                 else:
                     cv2.putText(frame, "STRAIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-
+            
             else:
                 # Target rank is higher than available markers
                 status = f"SEQ: {current_target_rank} | WAITING FOR MARKER..."
@@ -239,6 +239,7 @@ while True:
         angle_rounded = 5 * round(angle_deg / 5)
         dist_rounded = 5 * round(min_dist / 5)
         turn_or_move = 0
+        crit_event = 0
         
         if (current_time - last_udp_send_time) >= UDP_INTERVAL and not task_completed:
             try:
@@ -246,6 +247,8 @@ while True:
                     turn_or_move = 1
                 if dist_rounded <= dist_tolerance:
                     turn_or_move = 2
+                if marker_id == 10: #---------------------------------------------------------------critical event marker ID
+                    crit_event = 1
                 
                 # Send
                 udp_message = struct.pack('<ddd', float(angle_rounded), float(dist_rounded), float(turn_or_move))
