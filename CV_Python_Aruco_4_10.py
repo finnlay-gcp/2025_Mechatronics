@@ -29,7 +29,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # --- UDP TIMING CONFIGURATION ---
 last_udp_send_time = 0
-UDP_INTERVAL = 0.25 # ------------------------------------------------------------------------------------------------udp send interval
+UDP_INTERVAL = 0.5 # ------------------------------------------------------------------------------------------------udp send interval
 
 # Load the camera calibration values
 camera_calibration = np.load('workdir/Calibration.npz') #from Jupyter notebook
@@ -83,6 +83,13 @@ last_print_time = time.time()
 # Flag to stop sending after completion
 task_completed = False
 
+# This controls which marker index we are currently targeting
+# 1 = Second lowest (Target 1), 2 = Third lowest (Target 2), etc.
+current_target_rank = 1 
+SEQUENCE_SWITCH_DIST = 300 # ------------------------------------------------------------------------Distance in mm to trigger switch to next marker
+switching_cooldown = 0     # Timer to prevent double-switching
+
+
 while True:
     loop_start_timestamp = time.time()
     
@@ -130,186 +137,136 @@ while True:
         else:
             ids = None
     
+    # Variables for UDP sending (reset every frame)
+    angle_deg = None
+    min_dist = None
+    
     # If markers are detected (after filtering)
     if ids is not None:
-        # Draw detected markers
+        # Draw detected markers and axes
         gray = aruco.drawDetectedMarkers(gray, corners, ids)
         frame = aruco.drawDetectedMarkers(frame, corners, ids)
-        
-        # Estimate pose of each marker
         rvecs, tvecs,_objPoints = aruco.estimatePoseSingleMarkers(corners, marker_size, CM, dist_coef)
         
-        # Loop through ALL detected markers to draw axes
         for i in range(len(ids)):
-            rvec = rvecs[i]
-            tvec = tvecs[i]
-            
-            # Visualization: Draw Axis
-            axis_length = 50
-            # Project axis point to ensure it is in frame before drawing
-            axis_point, _ = cv2.projectPoints(np.float32([[0, 0, axis_length]]), rvec, tvec, CM, dist_coef)
-            axis_x = axis_point[0, 0, 0]
-            axis_y = axis_point[0, 0, 1]
-            
-            if 0 <= axis_x < frame.shape[1] and 0 <= axis_y < frame.shape[0]:
-                cv2.drawFrameAxes(frame, CM, dist_coef, rvec, tvec, axis_length)
+            cv2.drawFrameAxes(frame, CM, dist_coef, rvecs[i], tvecs[i], 50)
         
-        # --- DISTANCE CALCULATION ---
+        # ------------------ SEQUENCE LOGIC ------------------
         # We need at least 2 markers to calculate a distance
         if len(ids) >= 2:
-            min_dist = float('inf')
-            closest_pair = None # Will store indices (i, j)
             
-            # Compare every marker with every other marker
-            for i in range(len(ids)):
-                for j in range(i + 1, len(ids)):
-                    # Extract 3D position vectors (x, y, z)
-                    pos1 = tvecs[i][0]
-                    pos2 = tvecs[j][0]
-                    
-                    # Calculate Euclidean distance in 3D space
-                    dist = np.linalg.norm(pos1 - pos2)
-                    
-                    if dist < min_dist:
-                        min_dist = dist
-                        closest_pair = (i, j)
+            # 1. Zip IDs with their index so we can sort them but keep track of where they are in rvecs/tvecs
+            # Format: [(ID_Value, Index_in_Array), ...]
+            id_map = []
+            for i, id_val in enumerate(ids.flatten()):
+                id_map.append((id_val, i))
             
-            # If we found a pair (which we always should if len >= 2)
-            if closest_pair:
-                idx1, idx2 = closest_pair
+            # 2. Sort by ID Value (Lowest to Highest)
+            id_map.sort(key=lambda x: x[0])
+            
+            # 3. Identify Source (Lowest ID)
+            source_id, source_idx = id_map[0]
+            
+            # 4. Identify Target (Based on current rank)
+            # If current_target_rank is 1, we want the item at index 1 in the sorted list (2nd lowest)
+            if current_target_rank < len(id_map):
+                target_id, target_idx = id_map[current_target_rank]
                 
-                # --- SORT IDS FOR STABILITY ---
-                # Ensure we always measure FROM the lower ID TO the higher ID
-                # This prevents the angle from flipping if detection order changes
-                if ids[idx1][0] > ids[idx2][0]:
-                    idx1, idx2 = idx2, idx1
+                # --- CALCULATE DISTANCE & ANGLE (Source -> Target) ---
+                pos1 = tvecs[source_idx][0]
+                pos2 = tvecs[target_idx][0]
                 
-                # Get the center points of the markers on the 2D image for drawing the line
-                c1 = np.mean(corners[idx1][0], axis=0).astype(int)
-                c2 = np.mean(corners[idx2][0], axis=0).astype(int)
+                # Euclidean distance
+                min_dist = np.linalg.norm(pos1 - pos2)
                 
-                # Draw a yellow line between the closest pair (The "Target Line")
+                # --- CHECK THRESHOLD TO SWITCH TARGET ---
+                if min_dist < SEQUENCE_SWITCH_DIST and (time.time() - switching_cooldown > 3.0):
+                    print(f"\n[!!!] THRESHOLD REACHED ({min_dist:.0f}mm). Switching sequence from Target {current_target_rank} to {current_target_rank + 1}...\n")
+                    current_target_rank += 1
+                    switching_cooldown = time.time()
+                    # We continue processing this frame, but next frame will look for the new target
+                
+                # --- VISUALIZATION & ANGLE CALC (Same as before) ---
+                c1 = np.mean(corners[source_idx][0], axis=0).astype(int)
+                c2 = np.mean(corners[target_idx][0], axis=0).astype(int)
+                
                 cv2.line(frame, tuple(c1), tuple(c2), (0, 255, 255), 2)
                 
-                # --- ACCURATE ANGLE CALCULATION ---
-                # 1. Get Rotation Matrix for the "Source" Marker (idx1)
-                # This matrix converts local marker coordinates (X, Y, Z) to camera coordinates
-                rmat, _ = cv2.Rodrigues(rvecs[idx1][0])
-                
-                # 2. Extract the Orientation Vector
-                # By default, ArUco 'Up' is the Y-axis (Green). 
-                # Column 0 = X (Right), Column 1 = Y (Up/Top), Column 2 = Z (Forward/Normal)
+                rmat, _ = cv2.Rodrigues(rvecs[source_idx][0])
                 orientation_vec = rmat[:, 1] 
+                line_vec = tvecs[target_idx][0] - tvecs[source_idx][0]
                 
-                # 3. Create the Line Vector (From Source -> Target)
-                # It is crucial this vector points FROM idx1 TO idx2
-                line_vec = tvecs[idx2][0] - tvecs[idx1][0]
-                
-                # 4. Calculate Signed Angle (-180 to +180)
                 unit_orient = orientation_vec / np.linalg.norm(orientation_vec)
                 unit_line = line_vec / np.linalg.norm(line_vec)
-                
-                # Get the Z-axis (Normal vector) of the source marker to define "Up"
                 normal_vec = rmat[:, 2] 
                 
-                # Calculate components
-                dot_prod = np.dot(unit_orient, unit_line)       # Cosine component
-                cross_prod = np.cross(unit_orient, unit_line)   # Vector perpendicular to turn
-                
-                # Project the cross product onto the normal vector to get the Sine component
+                dot_prod = np.dot(unit_orient, unit_line)
+                cross_prod = np.cross(unit_orient, unit_line)
                 sine_component = np.dot(cross_prod, normal_vec)
                 
-                # Use arctan2 to calculate the full signed angle
                 angle_rad = np.arctan2(sine_component, dot_prod)
                 angle_deg = np.degrees(angle_rad)
                 
-                # --- VISUAL DEBUGGING ---
-                # Draw the "Orientation" vector on screen in pink so you can see what is being compared.
-                # If the pink line overlaps the yellow line, Angle is 0.
-                projected_orientation_end = tvecs[idx1][0] + (orientation_vec * (min_dist * 0.5)) # Scale line to half distance
+                # Draw heading for debug
+                projected_end = tvecs[source_idx][0] + (orientation_vec * (min_dist * 0.5))
+                p_end, _ = cv2.projectPoints(projected_end.reshape(1, 1, 3), np.zeros((3,1)), np.zeros((3,1)), CM, dist_coef)
+                cv2.line(frame, tuple(c1), tuple(p_end[0][0].astype(int)), (255, 105, 180), 3)
                 
-                # Project this 3D point to 2D image
-                p_end, _ = cv2.projectPoints(projected_orientation_end.reshape(1, 1, 3), np.zeros((3,1)), np.zeros((3,1)), CM, dist_coef)
-                p_end_2d = tuple(p_end[0][0].astype(int))
-                
-                # Draw pink "Heading" Line
-                cv2.line(frame, tuple(c1), p_end_2d, (255, 105, 180), 3) 
-                
-                # Display text
+                # Text Info
+                info_text = f"SEQ: {current_target_rank} | ID {source_id}->{target_id} | Dist: {min_dist:.0f}"
                 midpoint = ((c1[0] + c2[0]) // 2, (c1[1] + c2[1]) // 2)
-                info_text = f"Dist: {min_dist:.0f}mm | Ang: {angle_deg:.0f}"
-                cv2.putText(frame, info_text, tuple(midpoint), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, info_text, tuple(midpoint), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+                # Tolerance checks
+                angle_tolerance = 7 #------------------------------------------------------------------------------------------------angle tolerance in degrees
+                dist_tolerance = 200 #--------------------------------------------------------------------------------------------------distance tolerance in mm
                 
-                angle_tolerance = 7 #--------------------------------------------------------------------------------------------------tolerance for straight
-                dist_tolerance = 200 #--------------------------------------------------------------------------------------------------tolerance for distance
-                
-                # Print to console
-                current_time = time.time()
-                if current_time - last_print_time >= 1: #-----------------------------------------------------------------------------------------print speed
-                    id1_num = ids[idx1][0]
-                    id2_num = ids[idx2][0]
-                    print(f"ID {id1_num}->{id2_num} | Dist: {min_dist:.1f}mm | Angle: {angle_deg:.1f} deg | Turn: {'LEFT' if angle_deg > angle_tolerance else 'RIGHT' if angle_deg < -angle_tolerance else 'STRAIGHT'}")
-                    last_print_time = current_time
-            
-            # --- ALERTS ---
-            if angle_deg > angle_tolerance:
-                cv2.putText(frame, "TURN LEFT", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
-            elif angle_deg < -angle_tolerance:
-                cv2.putText(frame, "TURN RIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 0, 255), 5)
+                if angle_deg > angle_tolerance:
+                    cv2.putText(frame, "TURN LEFT", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
+                elif angle_deg < -angle_tolerance:
+                    cv2.putText(frame, "TURN RIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
+                else:
+                    cv2.putText(frame, "STRAIGHT",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
+
             else:
-                cv2.putText(frame, "STRAIGHT AHEAD",(100, 200), cv2.FONT_HERSHEY_SIMPLEX, 5, (0, 255, 0), 5)
-            
-            # =================== UDP COMMUNICATION ===============================================================
-            # Runs every single frame, sending integer values of angle_deg and min_dist
-            current_time = time.time()
-            angle_rounded = round(angle_deg)
-            dist_rounded = round(min_dist)
-            turn_or_move = 0
-            
-            # ==================== SEND FUNCTION ====================
-            def send_udp(angle_rounded, dist_rounded, turn_or_move):
+                # Target rank is higher than available markers
+                status = f"SEQ: {current_target_rank} | WAITING FOR MARKER..."
+                cv2.putText(frame, status, (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    # =================== UDP COMMUNICATION ===================
+    # Only send if we successfully calculated a distance/angle this frame
+    if angle_deg is not None and min_dist is not None:
+        current_time = time.time()
+        angle_rounded = 5 * round(angle_deg / 5)
+        dist_rounded = 5 * round(min_dist / 5)
+        turn_or_move = 0
+        
+        if (current_time - last_udp_send_time) >= UDP_INTERVAL and not task_completed:
+            try:
+                if abs(angle_rounded) <= angle_tolerance:
+                    turn_or_move = 1
+                if dist_rounded <= dist_tolerance:
+                    turn_or_move = 2
+                
+                # Send
                 udp_message = struct.pack('<ddd', float(angle_rounded), float(dist_rounded), float(turn_or_move))
                 sock_send_temp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 sock_send_temp.sendto(udp_message, (UDP_SEND_IP, UDP_SEND_PORT))
-                sock_send_temp.close() # Clean up
-            
-            # ==================== RECEIVE FUNCTION ====================
-            if (current_time - last_udp_send_time) >= UDP_INTERVAL and not task_completed:
-                try:
-                    if abs(angle_rounded) <= angle_tolerance:
-                        turn_or_move = 1
-                    if dist_rounded <= dist_tolerance:
-                        turn_or_move = 2
-                    
-                    # 1. Send the data
-                    send_udp(angle_rounded, dist_rounded, turn_or_move)
-                    last_udp_send_time = current_time
-                    
-                    # 2. Check for response (NON-BLOCKING)
-                    # We check ONLY ONCE. If data is there, great. If not, we move on.
-                    try:
-                        data, addr = sock_receive.recvfrom(BUFFER_SIZE)
-                        
-                        if len(data) >= 8:
-                            received_value = struct.unpack('<d', data[:8])[0]
-                            
-                            if received_value == 1.0:
-                                print("Task complete! Sending stop signal [0, 0, 0]...")
-                                send_udp(0.0, 0.0, 0.0)
-                                task_completed = True # Stop sending future commands
-                            
-                            if received_value != 0:
-                                print(f"Received value: {received_value}")
-                    
-                    except socket.error as e:
-                        # This catches the "No data available" error and lets the loop continue safely
-                        if e.errno != errno.EAGAIN and e.errno != errno.EWOULDBLOCK and e.errno != 10035:
-                            print(f"Socket Error: {e}")
+                sock_send_temp.close()
+                last_udp_send_time = current_time
                 
-                except Exception as e:
-                    print(f"UDP General Error: {e}")
-    
+                # Receive (Non-blocking)
+                try:
+                    data, addr = sock_receive.recvfrom(BUFFER_SIZE)
+                    if len(data) >= 8:
+                        received_value = struct.unpack('<d', data[:8])[0]
+                        if received_value == 1.0:
+                            print("Task complete signal received.")
+                            task_completed = True
+                except socket.error as e:
+                    pass # No data
+            except Exception as e:
+                print(f"UDP Error: {e}")
+
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
     proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
