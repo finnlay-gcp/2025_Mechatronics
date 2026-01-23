@@ -7,12 +7,12 @@ import struct
 import errno
 
 # Constants - Receive Configuration
-UDP_RECEIVE_IP = "172.26.236.13"  # Your PC's WiFi IP
+UDP_RECEIVE_IP = "172.26.236.13"  #-------------------------------------------------Your PC's WiFi IP
 UDP_RECEIVE_PORT = 50003  # Different port for PC to receive responses
 BUFFER_SIZE = 1024
 
 # Constants - Send Configuration
-UDP_SEND_IP = "138.38.228.74"  # Raspberry Pi IP
+UDP_SEND_IP = "172.26.236.13"  # ---------------------------------------------------------Raspberry Pi IP
 UDP_SEND_PORT = 50002  # Pi is listening on this port
 
 # --- CHANGED: SETUP RECEIVE SOCKET ONCE HERE ---
@@ -20,7 +20,7 @@ sock_receive = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock_receive.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 try:
     sock_receive.bind((UDP_RECEIVE_IP, UDP_RECEIVE_PORT))
-    sock_receive.setblocking(False) # <--- CRITICAL FIX: Don't wait for data
+    sock_receive.setblocking(False)
     print(f"Listening for UDP on {UDP_RECEIVE_IP}:{UDP_RECEIVE_PORT}")
 except Exception as e:
     print(f"Socket Bind Error: {e}")
@@ -29,7 +29,7 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # --- UDP TIMING CONFIGURATION ---
 last_udp_send_time = 0
-UDP_INTERVAL = 0.5 # ------------------------------------------------------------------------------------------------udp send interval
+UDP_INTERVAL = 1 # ------------------------------------------------------------------------------------------------udp send interval
 
 # Load the camera calibration values
 camera_calibration = np.load('workdir/Calibration.npz') #from Jupyter notebook
@@ -37,7 +37,7 @@ CM=camera_calibration['CM'] #camera matrix
 dist_coef=camera_calibration['dist_coef'] #distortion coefficients from the camera
 
 # Define the ArUco dictionary and parameters
-marker_size = 98 # -------------------------------------------------------------------------------SIZE OF THE MARKER IN mm (HAVE TO MEASURE IF PRINTED)
+marker_size = 105 # -------------------------------------------------------------------------------SIZE OF THE MARKER IN mm (HAVE TO MEASURE IF PRINTED)
 aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
 parameters = aruco.DetectorParameters()
 
@@ -218,8 +218,8 @@ while True:
                 cv2.putText(frame, info_text, tuple(midpoint), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                 
                 # Tolerance checks
-                angle_tolerance = 7 #------------------------------------------------------------------------------------------------angle tolerance in degrees
-                dist_tolerance = 200 #--------------------------------------------------------------------------------------------------distance tolerance in mm
+                angle_tolerance = 7 #-----------------------------------------------------------------------------------------angle tolerance in degrees
+                dist_tolerance = 200 #----------------------------------------------------------------------------------------distance tolerance in mm
                 
                 if angle_deg > angle_tolerance:
                     cv2.putText(frame, "TURN LEFT", (100, 200), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
@@ -232,44 +232,49 @@ while True:
                 # Target rank is higher than available markers
                 status = f"SEQ: {current_target_rank} | WAITING FOR MARKER..."
                 cv2.putText(frame, status, (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    
     # =================== UDP COMMUNICATION ===================
     # Only send if we successfully calculated a distance/angle this frame
     if angle_deg is not None and min_dist is not None:
         current_time = time.time()
+        
+        # [Existing rounding and logic...]
         angle_rounded = 5 * round(angle_deg / 5)
         dist_rounded = 5 * round(min_dist / 5)
         turn_or_move = 0
-        crit_event = 0
         
         if (current_time - last_udp_send_time) >= UDP_INTERVAL and not task_completed:
             try:
-                if abs(angle_rounded) <= angle_tolerance:
+                if abs (angle_rounded) > angle_tolerance:
                     turn_or_move = 1
-                if dist_rounded <= dist_tolerance:
+                if abs(angle_rounded) <= angle_tolerance:
                     turn_or_move = 2
-                if marker_id == 10: #---------------------------------------------------------------critical event marker ID
-                    crit_event = 1
+                if dist_rounded <= dist_tolerance:
+                    turn_or_move = 3
+                
+                # Check for critical marker (safely handle if marker_id isn't defined in scope)
+                if 'marker_id' in locals() and marker_id == 7: #-------------------------------------------------------CRITICAL MARKER ID
+                    turn_or_move = 4
                 
                 # Send
-                udp_message = struct.pack('<ddd', float(angle_rounded), float(dist_rounded), float(turn_or_move))
+                print(f"Sending UDP to {UDP_SEND_IP}: Angle={angle_rounded}, Dist={dist_rounded}") # DEBUG PRINT
+                udp_message = struct.pack('<ddd', float(angle_rounded), float(dist_rounded), float(turn_or_move),)
                 sock_send_temp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 sock_send_temp.sendto(udp_message, (UDP_SEND_IP, UDP_SEND_PORT))
                 sock_send_temp.close()
                 last_udp_send_time = current_time
                 
-                # Receive (Non-blocking)
-                try:
-                    data, addr = sock_receive.recvfrom(BUFFER_SIZE)
-                    if len(data) >= 8:
-                        received_value = struct.unpack('<d', data[:8])[0]
-                        if received_value == 1.0:
-                            print("Task complete signal received.")
-                            task_completed = True
-                except socket.error as e:
-                    pass # No data
+                # ... [Existing Receive Logic] ...
+                
             except Exception as e:
                 print(f"UDP Error: {e}")
-
+    else:
+        # LOGIC DIAGNOSTIC: Why aren't we sending?
+        if ids is None or len(ids) < 2:
+            pass # Silent fail: not enough markers
+        elif current_target_rank >= len(ids):
+            # We see markers, but not the next one in the sequence
+            pass
     # Add the frame rate to the images
     fps_label = f"CAMERA FPS: {fps:.2f}"
     proc_label = f"PROCESSING FPS: {1/processing_period:.2f}"
